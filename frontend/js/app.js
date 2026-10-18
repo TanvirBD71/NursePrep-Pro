@@ -16,6 +16,9 @@ const appState = {
   dashboardLoading: false,
   dashboardLoaded: false,
   dashboardError: '',
+  accountProfile: null,
+  profileLoading: false,
+  accountCurrentPassword: '',
   history: []
 };
 
@@ -40,6 +43,19 @@ function showToast(msg, ms) {
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function wirePasswordToggle(inputId, buttonId) {
+  const input = document.getElementById(inputId);
+  const button = document.getElementById(buttonId);
+  if (!input || !button) return;
+  button.onclick = () => {
+    const showPassword = input.type === 'password';
+    input.type = showPassword ? 'text' : 'password';
+    button.textContent = showPassword ? 'Hide' : 'Show';
+    button.setAttribute('aria-label', `${showPassword ? 'Hide' : 'Show'} ${input.labels[0].textContent.toLowerCase()}`);
+    button.setAttribute('aria-pressed', String(showPassword));
+  };
 }
 
 function setLoading(html) {
@@ -67,6 +83,7 @@ function render() {
   switch (appState.currentView) {
     case 'auth': renderAuth(); break;
     case 'dashboard': renderDashboard(); break;
+    case 'profile': renderProfile(); break;
     case 'config': renderConfig(); break;
     case 'exam': renderExam(); break;
     case 'review': renderReview(); break;
@@ -78,8 +95,15 @@ function updateHeader() {
   if (appState.currentUser) {
     headerRight.innerHTML = `
       <span class="user-chip">${escapeHtml(appState.currentUser.email)}</span>
+      ${appState.currentView !== 'exam' ? '<button class="btn btn-secondary" id="profileBtn" style="padding:6px 12px;font-size:13px;">Profile & Account</button>' : ''}
       <button class="btn btn-secondary" id="logoutBtn" style="padding:6px 12px;font-size:13px;">Logout</button>`;
     document.getElementById('logoutBtn').onclick = logout;
+    const profileBtn = document.getElementById('profileBtn');
+    if (profileBtn) profileBtn.onclick = () => {
+      appState.accountProfile = null;
+      appState.accountCurrentPassword = '';
+      setView('profile');
+    };
   } else {
     headerRight.innerHTML = '';
   }
@@ -94,6 +118,9 @@ function logout() {
   appState.dashboardLoaded = false;
   appState.dashboardLoading = false;
   appState.dashboardError = '';
+  appState.accountProfile = null;
+  appState.profileLoading = false;
+  appState.accountCurrentPassword = '';
   appState.history = [];
   localStorage.removeItem('np_user');
   setView('auth');
@@ -104,29 +131,69 @@ let authMode = 'login'; // 'login' | 'register'
 
 function renderAuth() {
   main.innerHTML = `
-    <div class="auth-wrap">
+    <div class="auth-wrap ${authMode === 'register' ? 'auth-register-wrap' : ''}">
       <div class="card">
         <h1 class="auth-title">${authMode === 'login' ? 'Welcome back' : 'Create account'}</h1>
         <p class="auth-sub">${authMode === 'login' ? 'Sign in to continue your prep.' : 'Start your free exam prep journey.'}</p>
         <form id="authForm">
+          ${authMode === 'register' ? `
           <div class="form-group">
-            <label class="form-label" for="email">Email</label>
+            <label class="form-label" for="fullName">Name *</label>
+            <input class="form-input" type="text" id="fullName" required autocomplete="name" />
+          </div>` : ''}
+          <div class="form-group">
+            <label class="form-label" for="email">Email${authMode === 'register' ? ' *' : ''}</label>
             <input class="form-input" type="email" id="email" required autocomplete="email" />
             <div class="form-error" id="emailErr"></div>
           </div>
           <div class="form-group">
-            <label class="form-label" for="password">Password</label>
-            <input class="form-input" type="password" id="password" required autocomplete="current-password" />
+            <label class="form-label" for="password">Password${authMode === 'register' ? ' *' : ''}</label>
+            <div class="password-input-wrap">
+              <input class="form-input" type="password" id="password" required minlength="${authMode === 'register' ? 8 : 4}" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" />
+              <button class="password-toggle" type="button" id="togglePassword" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
             <div class="form-error" id="pwErr"></div>
           </div>
           ${authMode === 'register' ? `
           <div class="form-group">
-            <label class="form-label" for="targetExam">Target Exam</label>
-            <select class="form-select" id="targetExam">
+            <label class="form-label" for="confirmPassword">Confirm password *</label>
+            <div class="password-input-wrap">
+              <input class="form-input" type="password" id="confirmPassword" required minlength="8" autocomplete="new-password" />
+              <button class="password-toggle" type="button" id="toggleConfirmPassword" aria-label="Show confirm password" aria-pressed="false">Show</button>
+            </div>
+            <div class="form-error" id="confirmPasswordErr"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mobile">Mobile *</label>
+            <input class="form-input" type="tel" id="mobile" required autocomplete="tel" inputmode="tel" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bloodGroup">Blood group</label>
+            <select class="form-select" id="bloodGroup">
+              <option value="">Select blood group</option>
+              ${['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(group => `<option value="${group}">${group}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="birthDate">Birth date *</label>
+            <input class="form-input" type="date" id="birthDate" required max="${todayLocalISO()}" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="nursingCollege">Nursing college name *</label>
+            <input class="form-input" type="text" id="nursingCollege" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="address">Address</label>
+            <textarea class="form-input profile-textarea" id="address"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="targetExam">Target exam *</label>
+            <select class="form-select" id="targetExam" required>
               <option value="NCLEX-RN">NCLEX-RN</option>
               <option value="Prometric">Prometric (Middle East)</option>
             </select>
           </div>` : ''}
+          ${authMode === 'register' ? '<p class="profile-privacy-note">Remember your password: you’ll need it to view or edit your profile information later.</p>' : ''}
           <button class="btn btn-primary btn-block" type="submit" id="authSubmit">
             ${authMode === 'login' ? 'Sign In' : 'Register'}
           </button>
@@ -139,6 +206,10 @@ function renderAuth() {
     </div>`;
   document.getElementById('toggleAuth').onclick = () => { authMode = authMode === 'login' ? 'register' : 'login'; renderAuth(); };
   document.getElementById('authForm').onsubmit = handleAuthSubmit;
+  wirePasswordToggle('password', 'togglePassword');
+  wirePasswordToggle('confirmPassword', 'toggleConfirmPassword');
+  const birthDate = document.getElementById('birthDate');
+  if (birthDate) birthDate.max = todayLocalISO();
 }
 
 function validateEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
@@ -152,7 +223,37 @@ async function handleAuthSubmit(ev) {
   emailErr.textContent = ''; pwErr.textContent = '';
   let ok = true;
   if (!validateEmail(email)) { emailErr.textContent = 'Please enter a valid email.'; ok = false; }
-  if (password.length < 4) { pwErr.textContent = 'Password must be at least 4 characters.'; ok = false; }
+  const minPasswordLength = authMode === 'register' ? 8 : 4;
+  if (password.length < minPasswordLength) {
+    pwErr.textContent = `Password must be at least ${minPasswordLength} characters.`;
+    ok = false;
+  }
+  if (authMode === 'register') {
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    const confirmPasswordErr = document.getElementById('confirmPasswordErr');
+    confirmPasswordErr.textContent = '';
+    if (password !== confirmPassword) {
+      confirmPasswordErr.textContent = 'Passwords do not match.';
+      ok = false;
+    }
+  }
+  let registrationProfile = null;
+  if (authMode === 'register') {
+    const mobile = document.getElementById('mobile').value.trim();
+    const digits = mobile.replace(/\D/g, '');
+    if (digits.length < 7 || digits.length > 15) {
+      showToast('Enter a valid mobile number with 7 to 15 digits.');
+      return;
+    }
+    registrationProfile = {
+      full_name: document.getElementById('fullName').value.trim(),
+      mobile: mobile,
+      blood_group: document.getElementById('bloodGroup').value,
+      birth_date: document.getElementById('birthDate').value,
+      nursing_college: document.getElementById('nursingCollege').value.trim(),
+      address: document.getElementById('address').value.trim()
+    };
+  }
   if (!ok) return;
   const btn = document.getElementById('authSubmit');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
@@ -162,7 +263,7 @@ async function handleAuthSubmit(ev) {
       res = await Api.login(email, password);
     } else {
       const targetExam = document.getElementById('targetExam').value;
-      res = await Api.register(email, password, targetExam);
+      res = await Api.register(email, password, targetExam, registrationProfile);
     }
     if (res && res.success) {
       appState.currentUser = { user_id: res.user_id, email: email, target_exam: res.target_exam };
@@ -379,6 +480,317 @@ function avgScore() {
   if (!appState.history.length) return 0;
   const sum = appState.history.reduce((a,h)=>a+h.score,0);
   return Math.round(sum / appState.history.length);
+}
+
+function todayLocalISO() {
+  const today = new Date();
+  return [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
+}
+
+function formatAge(birthDate) {
+  if (!birthDate) return 'Add a birthday to calculate your age.';
+  const parts = birthDate.split('-').map(Number);
+  const birth = new Date(parts[0], parts[1] - 1, parts[2]);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (birth.getFullYear() !== parts[0] || birth.getMonth() !== parts[1] - 1 ||
+      birth.getDate() !== parts[2] || birth > today) return 'Enter a valid birthday.';
+
+  let years = today.getFullYear() - birth.getFullYear();
+  let months = today.getMonth() - birth.getMonth();
+  let days = today.getDate() - birth.getDate();
+  if (days < 0) {
+    months--;
+    days += new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+  }
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+  return `${years} years, ${months} months, ${days} days`;
+}
+
+function renderProfile() {
+  const profile = appState.accountProfile || {};
+  const groups = ['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+  main.innerHTML = `
+    <div class="card profile-card">
+      <h1 class="auth-title">Profile &amp; Account</h1>
+      <p class="auth-sub">Manage your profile details, target exam, and password.</p>
+      <p class="profile-privacy-note">Profile details are stored in the app’s linked Google Sheet. Blood group, address, nursing college, and birthday are optional; only share details you are comfortable providing.</p>
+      <form id="profileForm">
+        <div class="form-group">
+          <label class="form-label" for="currentPassword">Current password</label>
+          <div class="password-input-wrap">
+            <input class="form-input" type="password" id="currentPassword" required autocomplete="current-password" value="${escapeHtml(appState.accountCurrentPassword)}" />
+            <button class="password-toggle" type="button" id="toggleCurrentPassword" aria-label="Show current password" aria-pressed="false">Show</button>
+          </div>
+          <small class="profile-help">Required to view or save your private profile details.</small>
+        </div>
+        ${appState.accountProfile ? `
+          <h2 class="section-title profile-section-title">Personal details</h2>
+          <div class="profile-grid">
+            <div class="form-group">
+              <label class="form-label" for="fullName">Full name *</label>
+              <input class="form-input" id="fullName" name="full_name" required autocomplete="name" value="${escapeHtml(profile.full_name || '')}" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="mobile">Mobile number *</label>
+              <input class="form-input" id="mobile" name="mobile" type="tel" required autocomplete="tel" inputmode="tel" value="${escapeHtml(profile.mobile || '')}" />
+              <small class="profile-help">Include country code when applicable.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="bloodGroup">Blood group</label>
+              <select class="form-select" id="bloodGroup" name="blood_group">
+                ${groups.map(group => `<option value="${group}" ${profile.blood_group === group ? 'selected' : ''}>${group || 'Select blood group'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="nursingCollege">Nursing college</label>
+              <input class="form-input" id="nursingCollege" name="nursing_college" value="${escapeHtml(profile.nursing_college || '')}" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="isRegistered">Nursing registration *</label>
+              <select class="form-select" id="isRegistered" name="is_registered" required>
+                <option value="">Select Yes or No</option>
+                <option value="Yes" ${profile.is_registered === 'Yes' ? 'selected' : ''}>Yes</option>
+                <option value="No" ${profile.is_registered === 'No' ? 'selected' : ''}>No</option>
+              </select>
+            </div>
+            <div class="form-group" id="rnNumberGroup" ${profile.is_registered === 'Yes' ? '' : 'hidden'}>
+              <label class="form-label" for="rnNumber">RN number *</label>
+              <input class="form-input" id="rnNumber" name="rn_number" value="${escapeHtml(profile.rn_number || '')}" ${profile.is_registered === 'Yes' ? 'required' : ''} />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="birthDate">Birthday</label>
+              <input class="form-input" type="date" id="birthDate" name="birth_date" max="${todayLocalISO()}" value="${escapeHtml(profile.birth_date || '')}" />
+              <small class="profile-help">Age: <strong id="ageDisplay">${escapeHtml(formatAge(profile.birth_date || ''))}</strong></small>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="targetExamSetting">Target exam *</label>
+              <select class="form-select" id="targetExamSetting" name="target_exam" required>
+                <option value="NCLEX-RN" ${appState.currentUser.target_exam === 'NCLEX-RN' ? 'selected' : ''}>NCLEX-RN</option>
+                <option value="Prometric" ${appState.currentUser.target_exam === 'Prometric' ? 'selected' : ''}>Prometric (Middle East)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="address">Address</label>
+            <textarea class="form-input profile-textarea" id="address" name="address">${escapeHtml(profile.address || '')}</textarea>
+          </div>
+
+          <h2 class="section-title profile-section-title">Change password (optional)</h2>
+          <div class="profile-grid">
+            <div class="form-group">
+              <label class="form-label" for="newPassword">New password</label>
+              <div class="password-input-wrap">
+                <input class="form-input" type="password" id="newPassword" autocomplete="new-password" minlength="8" />
+                <button class="password-toggle" type="button" id="toggleNewPassword" aria-label="Show new password" aria-pressed="false">Show</button>
+              </div>
+              <small class="profile-help">Leave blank to keep your current password. Use at least 8 characters.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="confirmPassword">Confirm new password</label>
+              <div class="password-input-wrap">
+                <input class="form-input" type="password" id="confirmPassword" autocomplete="new-password" />
+                <button class="password-toggle" type="button" id="toggleConfirmPassword" aria-label="Show confirm new password" aria-pressed="false">Show</button>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit" id="saveProfileBtn">Save Profile &amp; Account</button>
+          <section class="delete-account-section" aria-labelledby="deleteAccountTitle">
+            <h2 id="deleteAccountTitle">Delete account</h2>
+            <p>This permanently deletes your account, profile, exam sessions, and progress. This cannot be undone.</p>
+            <button class="btn btn-danger btn-block" type="button" id="deleteAccountBtn">Delete Account</button>
+            <div id="deleteAccountConfirmation" hidden>
+              <div class="form-group">
+                <label class="form-label" for="deleteConfirmationText">Type DELETE to confirm</label>
+                <input class="form-input" type="text" id="deleteConfirmationText" autocomplete="off" />
+              </div>
+              <div class="profile-delete-actions">
+                <button class="btn btn-secondary" type="button" id="cancelAccountDeleteBtn">Cancel</button>
+                <button class="btn btn-danger" type="button" id="confirmAccountDeleteBtn" disabled>Delete Account Permanently</button>
+              </div>
+            </div>
+          </section>
+        ` : `
+          <button class="btn btn-primary btn-block" type="button" id="loadProfileBtn" ${appState.profileLoading ? 'disabled' : ''}>
+            ${appState.profileLoading ? '<span class="spinner"></span> Loading profile...' : 'Continue to Profile'}
+          </button>
+        `}
+        <button class="btn btn-secondary btn-block profile-back-btn" type="button" id="profileBackBtn">Back to Dashboard</button>
+      </form>
+    </div>`;
+
+  document.getElementById('profileBackBtn').onclick = () => {
+    appState.accountProfile = null;
+    appState.accountCurrentPassword = '';
+    setView('dashboard');
+  };
+  const loadButton = document.getElementById('loadProfileBtn');
+  if (loadButton) loadButton.onclick = loadProfile;
+  wirePasswordToggle('currentPassword', 'toggleCurrentPassword');
+  wirePasswordToggle('newPassword', 'toggleNewPassword');
+  wirePasswordToggle('confirmPassword', 'toggleConfirmPassword');
+
+  const registration = document.getElementById('isRegistered');
+  if (registration) registration.onchange = () => {
+    const rnGroup = document.getElementById('rnNumberGroup');
+    const rnNumber = document.getElementById('rnNumber');
+    const isRegistered = registration.value === 'Yes';
+    rnGroup.hidden = !isRegistered;
+    rnNumber.required = isRegistered;
+    if (!isRegistered) rnNumber.value = '';
+  };
+
+  const birthday = document.getElementById('birthDate');
+  if (birthday) birthday.onchange = () => {
+    document.getElementById('ageDisplay').textContent = formatAge(birthday.value);
+  };
+
+  const form = document.getElementById('profileForm');
+  if (appState.accountProfile) {
+    form.onsubmit = handleProfileSave;
+    document.getElementById('deleteAccountBtn').onclick = showAccountDeleteConfirmation;
+    document.getElementById('deleteConfirmationText').oninput = (event) => {
+      document.getElementById('confirmAccountDeleteBtn').disabled = event.target.value !== 'DELETE';
+    };
+    document.getElementById('cancelAccountDeleteBtn').onclick = () => {
+      document.getElementById('deleteConfirmationText').value = '';
+      document.getElementById('deleteAccountConfirmation').hidden = true;
+      document.getElementById('confirmAccountDeleteBtn').disabled = true;
+      document.getElementById('deleteAccountBtn').focus();
+    };
+    document.getElementById('confirmAccountDeleteBtn').onclick = handleAccountDelete;
+  }
+}
+
+async function loadProfile() {
+  appState.accountCurrentPassword = document.getElementById('currentPassword').value;
+  appState.profileLoading = true;
+  renderProfile();
+  try {
+    const result = await Api.getProfile(appState.currentUser.user_id, appState.accountCurrentPassword);
+    if (!result || !result.success) {
+      throw new Error((result && result.error) || 'Unable to load profile.');
+    }
+    appState.accountProfile = result.profile || {};
+    appState.currentUser.target_exam = result.target_exam || appState.currentUser.target_exam;
+    localStorage.setItem('np_user', JSON.stringify(appState.currentUser));
+    showToast('Profile loaded.');
+  } catch (err) {
+    showToast(err.message || 'Unable to load profile.');
+  } finally {
+    appState.profileLoading = false;
+    renderProfile();
+  }
+}
+
+async function handleProfileSave(event) {
+  event.preventDefault();
+  const newPassword = document.getElementById('newPassword').value;
+  const confirmPassword = document.getElementById('confirmPassword').value;
+  if (newPassword && newPassword !== confirmPassword) {
+    showToast('New password and confirmation do not match.');
+    return;
+  }
+  const mobileDigits = document.getElementById('mobile').value.replace(/\D/g, '');
+  if (mobileDigits.length < 7 || mobileDigits.length > 15) {
+    showToast('Enter a valid mobile number with 7 to 15 digits.');
+    return;
+  }
+
+  const saveButton = document.getElementById('saveProfileBtn');
+  saveButton.disabled = true;
+  saveButton.textContent = 'Saving...';
+  const profile = {
+    full_name: document.getElementById('fullName').value.trim(),
+    mobile: document.getElementById('mobile').value.trim(),
+    blood_group: document.getElementById('bloodGroup').value,
+    address: document.getElementById('address').value.trim(),
+    nursing_college: document.getElementById('nursingCollege').value.trim(),
+    is_registered: document.getElementById('isRegistered').value,
+    rn_number: document.getElementById('rnNumber').value.trim(),
+    birth_date: document.getElementById('birthDate').value
+  };
+  try {
+    const result = await Api.updateAccount(
+      appState.currentUser.user_id,
+      appState.accountCurrentPassword,
+      document.getElementById('targetExamSetting').value,
+      profile,
+      newPassword
+    );
+    if (!result || !result.success) {
+      throw new Error((result && result.error) || 'Unable to save profile.');
+    }
+    appState.accountProfile = result.profile || profile;
+    appState.currentUser.target_exam = result.target_exam;
+    appState.accountCurrentPassword = '';
+    appState.examConfig.examType = result.target_exam;
+    appState.dashboardLoaded = false;
+    appState.dashboard = null;
+    localStorage.setItem('np_user', JSON.stringify(appState.currentUser));
+    showToast('Profile and account updated.');
+    render();
+  } catch (err) {
+    showToast(err.message || 'Unable to save profile.');
+    saveButton.disabled = false;
+    saveButton.textContent = 'Save Profile & Account';
+  }
+}
+
+function showAccountDeleteConfirmation() {
+  const currentPassword = document.getElementById('currentPassword').value;
+  if (!currentPassword) {
+    showToast('Enter your current password before deleting your account.');
+    document.getElementById('currentPassword').focus();
+    return;
+  }
+  document.getElementById('deleteAccountConfirmation').hidden = false;
+  document.getElementById('deleteConfirmationText').focus();
+}
+
+async function handleAccountDelete() {
+  const currentPassword = document.getElementById('currentPassword').value;
+  const confirmation = document.getElementById('deleteConfirmationText').value;
+  if (!currentPassword) {
+    showToast('Enter your current password before deleting your account.');
+    document.getElementById('currentPassword').focus();
+    return;
+  }
+  if (confirmation !== 'DELETE') return;
+
+  const button = document.getElementById('confirmAccountDeleteBtn');
+  button.disabled = true;
+  button.textContent = 'Deleting account...';
+  try {
+    const result = await Api.deleteAccount(appState.currentUser.user_id, currentPassword);
+    if (!result || !result.success) {
+      throw new Error((result && result.error) || 'Unable to delete account.');
+    }
+    clearInterval(appState.timerInterval);
+    localStorage.removeItem('np_user');
+    appState.currentUser = null;
+    appState.accountProfile = null;
+    appState.accountCurrentPassword = '';
+    appState.activeExamData = [];
+    appState.examAnswers = {};
+    appState.submitted = {};
+    appState.dashboard = null;
+    appState.dashboardLoaded = false;
+    appState.dashboardLoading = false;
+    appState.dashboardError = '';
+    appState.profileLoading = false;
+    appState.history = [];
+    authMode = 'login';
+    setView('auth');
+    showToast('Account and all associated exam history deleted.');
+  } catch (err) {
+    showToast(err.message || 'Unable to delete account.');
+    button.disabled = false;
+    button.textContent = 'Delete Account Permanently';
+  }
 }
 
 // ===== Exam Configurator =====

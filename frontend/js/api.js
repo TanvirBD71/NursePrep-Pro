@@ -1,6 +1,6 @@
 // ===== API Client =====
 // Configure your deployed Google Apps Script Web App URL here.
-const API_BASE = (localStorage.getItem('api_base') || '').trim() || 'https://script.google.com/macros/s/AKfycbyvRKw5u89pGm_2V32FMyDIEQ1p4cF808tvUwLhD1r7Gq_rwnz8-q_AzKDHN-zumAgi/exec';
+const API_BASE = (localStorage.getItem('api_base') || '').trim() || 'https://script.google.com/macros/s/AKfycbyIixhct-yZ02S4_0zbfr41d6XpE89g2R4umsBg7Xc0naChLNNCmaWakiLXiEXq6uYj/exec';
 
 const Api = {
   async request(action, method, payload) {
@@ -16,8 +16,31 @@ const Api = {
   login(email, password) {
     return this.request('login', 'POST', { email: email, password: password });
   },
-  register(email, password, targetExam) {
-    return this.request('register', 'POST', { email: email, password: password, target_exam: targetExam });
+  register(email, password, targetExam, profile) {
+    return this.request('register', 'POST', {
+      email: email,
+      password: password,
+      target_exam: targetExam,
+      profile: profile || {}
+    });
+  },
+  getProfile(userId, currentPassword) {
+    return this.request('get_profile', 'POST', { user_id: userId, current_password: currentPassword });
+  },
+  updateAccount(userId, currentPassword, targetExam, profile, newPassword) {
+    return this.request('update_account', 'POST', {
+      user_id: userId,
+      current_password: currentPassword,
+      target_exam: targetExam,
+      profile: profile,
+      new_password: newPassword || ''
+    });
+  },
+  deleteAccount(userId, currentPassword) {
+    return this.request('delete_account', 'POST', {
+      user_id: userId,
+      current_password: currentPassword
+    });
   },
   getExam(examType, count, category) {
     let url = API_BASE + '?action=get_exam&exam_type=' + encodeURIComponent(examType) + '&count=' + encodeURIComponent(count);

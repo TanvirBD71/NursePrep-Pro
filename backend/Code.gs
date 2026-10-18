@@ -5,7 +5,10 @@
  *
  * Endpoints:
  *   POST ?action=login        {email, password} -> {success, user_id, target_exam}
- *   POST ?action=register     {email, password, target_exam} -> {success, user_id}
+ *   POST ?action=register     {email, password, target_exam, profile} -> {success, user_id, target_exam}
+ *   POST ?action=get_profile  {user_id, current_password} -> {profile, target_exam}
+ *   POST ?action=update_account {user_id, current_password, target_exam, profile, new_password?} -> {profile, target_exam}
+ *   POST ?action=delete_account {user_id, current_password} -> {success}
  *   GET  ?action=get_exam     ?exam_type=&count=&category= -> {questions:[{q_id, question_text, options, is_ngn}]}
  *   POST ?action=grade_question {q_id, user_answer} -> {correct_answer, rationale, is_correct}
  *   POST ?action=submit_exam  {user_id, mode, exam_type, answers:[{q_id,user_answer}]} -> {score, correct, total, session_id}
@@ -15,6 +18,7 @@
  */
 
 const SHEET_ID = '10kMeeH_4uvVaVWHDbI4iPjkZF8oWO6Ijf7L8Vw7pqUg'; // Replace with your Google Sheet ID
+const PROFILE_FIELDS = ['full_name','mobile','blood_group','address','nursing_college','is_registered','rn_number','birth_date'];
 
 function getSheet(name) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -64,6 +68,54 @@ function findUserRow(sheet, email) {
   return null;
 }
 
+function findUserById(sheet, userId) {
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(userId)) {
+      return { row: i + 1, values: data[i] };
+    }
+  }
+  return null;
+}
+
+function ensureProfileColumns(sheet) {
+  const lastColumn = Math.max(sheet.getLastColumn(), 1);
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(String);
+  PROFILE_FIELDS.forEach(function(field) {
+    if (headers.indexOf(field) < 0) {
+      headers.push(field);
+      sheet.getRange(1, headers.length).setValue(field);
+    }
+  });
+  const columns = {};
+  PROFILE_FIELDS.forEach(function(field) {
+    columns[field] = headers.indexOf(field);
+  });
+  return columns;
+}
+
+function getProfileFromRow(values, columns) {
+  const profile = {};
+  PROFILE_FIELDS.forEach(function(field) {
+    const value = values[columns[field]];
+    profile[field] = value instanceof Date
+      ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      : value == null ? '' : String(value);
+  });
+  return profile;
+}
+
+function isValidBirthDate(value) {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parts = value.split('-').map(Number);
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date.getFullYear() === parts[0] && date.getMonth() === parts[1] - 1 &&
+    date.getDate() === parts[2] && date <= today;
+}
+
 function safeParse(str, fallback) {
   try { return JSON.parse(str); } catch (e) { return fallback; }
 }
@@ -103,6 +155,9 @@ function doPost(e) {
   switch (action) {
     case 'login':            return handleLogin(body);
     case 'register':         return handleRegister(body);
+    case 'get_profile':      return handleGetProfile(body);
+    case 'update_account':   return handleUpdateAccount(body);
+    case 'delete_account':   return handleDeleteAccount(body);
     case 'grade_question':   return handleGradeQuestion(body);
     case 'submit_exam':      return handleSubmitExam(body);
     case 'get_dashboard':    return handleGetDashboard(body);
@@ -116,17 +171,55 @@ function doPost(e) {
 function handleRegister(body) {
   const email = (body.email || '').trim();
   const password = body.password || '';
-  const targetExam = body.target_exam || 'NCLEX-RN';
-  if (!email || !password) {
-    return corsResponse({ success: false, error: 'Email and password required.' });
+  const targetExam = String(body.target_exam || '');
+  const profile = body.profile || {};
+  const fullName = String(profile.full_name || '').trim();
+  const mobile = String(profile.mobile || '').trim();
+  const mobileDigits = mobile.replace(/\D/g, '');
+  const bloodGroup = String(profile.blood_group || '');
+  const birthDate = String(profile.birth_date || '');
+  const nursingCollege = String(profile.nursing_college || '').trim();
+  const address = String(profile.address || '').trim();
+  if (!email || !password || !fullName || !mobile || !birthDate || !nursingCollege || !targetExam) {
+    return corsResponse({ success: false, error: 'Name, email, password, mobile, birth date, nursing college, and target exam are required.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return corsResponse({ success: false, error: 'Enter a valid email address.' });
+  }
+  if (password.length < 8) {
+    return corsResponse({ success: false, error: 'Password must be at least 8 characters.' });
+  }
+  if (['NCLEX-RN', 'Prometric'].indexOf(targetExam) < 0) {
+    return corsResponse({ success: false, error: 'Select a valid target exam.' });
+  }
+  if (!/^[+\d\s().-]+$/.test(mobile) || mobileDigits.length < 7 || mobileDigits.length > 15) {
+    return corsResponse({ success: false, error: 'Enter a valid mobile number with 7 to 15 digits.' });
+  }
+  if (['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].indexOf(bloodGroup) < 0) {
+    return corsResponse({ success: false, error: 'Select a valid blood group.' });
+  }
+  if (!isValidBirthDate(birthDate)) {
+    return corsResponse({ success: false, error: 'Enter a valid birth date that is not in the future.' });
   }
   const users = getSheet('Users');
   if (findUserRow(users, email)) {
     return corsResponse({ success: false, error: 'Email already registered.' });
   }
+  const columns = ensureProfileColumns(users);
   const userId = uuid();
   const hash = sha256(password);
-  users.appendRow([userId, email, hash, targetExam]);
+  const row = new Array(users.getLastColumn()).fill('');
+  row[0] = userId;
+  row[1] = email;
+  row[2] = hash;
+  row[3] = targetExam;
+  row[columns.full_name] = fullName;
+  row[columns.mobile] = mobile;
+  row[columns.blood_group] = bloodGroup;
+  row[columns.address] = address;
+  row[columns.nursing_college] = nursingCollege;
+  row[columns.birth_date] = birthDate;
+  users.appendRow(row);
   return corsResponse({ success: true, user_id: userId, target_exam: targetExam });
 }
 
@@ -151,6 +244,132 @@ function handleLogin(body) {
     email: found.values[1],
     target_exam: found.values[3]
   });
+}
+
+function handleGetProfile(body) {
+  const userId = String(body.user_id || '');
+  const currentPassword = body.current_password || '';
+  if (!userId || !currentPassword) {
+    return corsResponse({ success: false, error: 'User ID and current password are required.' });
+  }
+  const users = getSheet('Users');
+  let found = findUserById(users, userId);
+  if (!found || sha256(currentPassword) !== String(found.values[2])) {
+    return corsResponse({ success: false, error: 'Current password is incorrect.' });
+  }
+  const columns = ensureProfileColumns(users);
+  found = findUserById(users, userId);
+  return corsResponse({
+    success: true,
+    target_exam: found.values[3],
+    profile: getProfileFromRow(found.values, columns)
+  });
+}
+
+function handleUpdateAccount(body) {
+  const userId = String(body.user_id || '');
+  const currentPassword = body.current_password || '';
+  const targetExam = String(body.target_exam || '');
+  const profile = body.profile || {};
+  const newPassword = body.new_password || '';
+  if (!userId || !currentPassword) {
+    return corsResponse({ success: false, error: 'User ID and current password are required.' });
+  }
+  if (['NCLEX-RN', 'Prometric'].indexOf(targetExam) < 0) {
+    return corsResponse({ success: false, error: 'Select a valid target exam.' });
+  }
+  const fullName = String(profile.full_name || '').trim();
+  const mobile = String(profile.mobile || '').trim();
+  const mobileDigits = mobile.replace(/\D/g, '');
+  const bloodGroup = String(profile.blood_group || '');
+  const address = String(profile.address || '').trim();
+  const nursingCollege = String(profile.nursing_college || '').trim();
+  const isRegistered = String(profile.is_registered || '');
+  const rnNumber = String(profile.rn_number || '').trim();
+  const birthDate = String(profile.birth_date || '');
+  if (!fullName) return corsResponse({ success: false, error: 'Full name is required.' });
+  if (!/^[+\d\s().-]+$/.test(mobile) || mobileDigits.length < 7 || mobileDigits.length > 15) {
+    return corsResponse({ success: false, error: 'Enter a valid mobile number with 7 to 15 digits.' });
+  }
+  if (['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].indexOf(bloodGroup) < 0) {
+    return corsResponse({ success: false, error: 'Select a valid blood group.' });
+  }
+  if (['Yes', 'No'].indexOf(isRegistered) < 0) {
+    return corsResponse({ success: false, error: 'Select whether you are registered.' });
+  }
+  if (isRegistered === 'Yes' && !rnNumber) {
+    return corsResponse({ success: false, error: 'RN number is required when registered.' });
+  }
+  if (!isValidBirthDate(birthDate)) {
+    return corsResponse({ success: false, error: 'Enter a valid birthday that is not in the future.' });
+  }
+  if (newPassword && newPassword.length < 8) {
+    return corsResponse({ success: false, error: 'New password must be at least 8 characters.' });
+  }
+
+  const users = getSheet('Users');
+  let found = findUserById(users, userId);
+  if (!found || sha256(currentPassword) !== String(found.values[2])) {
+    return corsResponse({ success: false, error: 'Current password is incorrect.' });
+  }
+
+  const columns = ensureProfileColumns(users);
+  found = findUserById(users, userId);
+  users.getRange(found.row, 4).setValue(targetExam);
+  PROFILE_FIELDS.forEach(function(field) {
+    let value = profile[field] == null ? '' : String(profile[field]).trim();
+    if (field === 'rn_number' && isRegistered !== 'Yes') value = '';
+    const cell = users.getRange(found.row, columns[field] + 1);
+    cell.setNumberFormat('@');
+    cell.setValue(value);
+  });
+  if (newPassword) users.getRange(found.row, 3).setValue(sha256(newPassword));
+
+  const updated = findUserById(users, userId);
+  return corsResponse({
+    success: true,
+    target_exam: targetExam,
+    password_changed: !!newPassword,
+    profile: getProfileFromRow(updated.values, columns)
+  });
+}
+
+function handleDeleteAccount(body) {
+  const userId = String(body.user_id || '');
+  const currentPassword = body.current_password || '';
+  if (!userId || !currentPassword) {
+    return corsResponse({ success: false, error: 'User ID and current password are required.' });
+  }
+
+  const users = getSheet('Users');
+  const user = findUserById(users, userId);
+  if (!user || sha256(currentPassword) !== String(user.values[2])) {
+    return corsResponse({ success: false, error: 'Current password is incorrect.' });
+  }
+
+  const sessions = getSheet('Sessions');
+  const sessionData = sessions.getDataRange().getValues();
+  const sessionIds = {};
+  const sessionRows = [];
+  for (let i = 1; i < sessionData.length; i++) {
+    if (String(sessionData[i][1]) === userId) {
+      const sessionId = String(sessionData[i][0]);
+      sessionIds[sessionId] = true;
+      sessionRows.push(i + 1);
+    }
+  }
+
+  const progress = getSheet('Progress');
+  const progressData = progress.getDataRange().getValues();
+  const progressRows = [];
+  for (let i = 1; i < progressData.length; i++) {
+    if (sessionIds[String(progressData[i][1])]) progressRows.push(i + 1);
+  }
+
+  progressRows.reverse().forEach(function(row) { progress.deleteRow(row); });
+  sessionRows.reverse().forEach(function(row) { sessions.deleteRow(row); });
+  users.deleteRow(user.row);
+  return corsResponse({ success: true });
 }
 
 // ---------- Exam retrieval (scrubbed) ----------
