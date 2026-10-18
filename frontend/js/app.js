@@ -182,13 +182,23 @@ function normalizeSessions(rawSessions) {
   if (!Array.isArray(rawSessions)) return [];
   return rawSessions
     .map(s => {
-      const score = Number(s && s.score);
-      const timestamp = s && s.timestamp ? new Date(s.timestamp).toString() === 'Invalid Date' ? null : s.timestamp : null;
+      const rawScore = Number(s && s.score);
+      const score = Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : 0;
+      const rawTimestamp = s && s.timestamp;
+      let timestamp = null;
+      if (rawTimestamp !== null && rawTimestamp !== undefined && rawTimestamp !== '') {
+        try {
+          const date = new Date(rawTimestamp);
+          if (Number.isFinite(date.getTime())) timestamp = date.toISOString();
+        } catch (err) {
+          // Ignore values that cannot be parsed as dates.
+        }
+      }
       return {
         session_id: s && s.session_id ? s.session_id : null,
         user_id: s && s.user_id ? s.user_id : null,
         mode: s && s.mode ? s.mode : 'Practice',
-        score: Number.isFinite(score) ? score : 0,
+        score: score,
         timestamp: timestamp,
         exam_type: s && s.exam_type ? s.exam_type : (s && s.examType ? s.examType : ''),
       };
