@@ -8,7 +8,7 @@ const EXAM_OPTIONS = [
 
 const appState = {
   currentUser: null,
-  currentView: 'auth',
+  currentView: 'landing',
   activeExamData: [],
   currentIndex: 0,
   examMode: 'tutor', // 'tutor' | 'mock'
@@ -91,6 +91,14 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function profileIconSvg() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg>';
+}
+
+function logoutIconSvg() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>';
+}
+
 function wirePasswordToggle(inputId, buttonId) {
   const input = document.getElementById(inputId);
   const button = document.getElementById(buttonId);
@@ -105,7 +113,14 @@ function wirePasswordToggle(inputId, buttonId) {
 }
 
 function setLoading(html) {
-  main.innerHTML = '<div class="loading-wrap"><div class="spinner"></div><p style="margin-top:12px;">' + (html || 'Loading...') + '</p></div>';
+  main.innerHTML = `
+    <div class="loading-wrap">
+      <div class="logo-preloader-mark" aria-hidden="true" style="width:80px;height:80px;">
+        <img src="assets/images/android-chrome-192x192.png" alt="" />
+      </div>
+      <p class="logo-preloader-label">${escapeHtml(html || 'Loading...')}</p>
+    </div>
+  `;
 }
 
 function showErrorState(msg, retryFn) {
@@ -126,24 +141,63 @@ function setView(view) {
 
 function render() {
   updateHeader();
+  ensureFloatingControls();
   switch (appState.currentView) {
+    case 'landing': renderLanding(); break;
     case 'auth': renderAuth(); break;
     case 'dashboard': renderDashboard(); break;
     case 'profile': renderProfile(); break;
     case 'config': renderConfig(); break;
     case 'exam': renderExam(); break;
     case 'review': renderReview(); break;
-    default: renderAuth();
+    default: renderLanding();
   }
+}
+
+function ensureFloatingControls() {
+  let timer = document.getElementById('floatingTimer');
+  if (!timer && appState.currentView === 'exam' && appState.examMode === 'mock') {
+    timer = document.createElement('div');
+    timer.id = 'floatingTimer';
+    timer.className = 'floating-timer';
+    timer.textContent = formatTime(appState.timeRemaining || 0);
+    document.body.appendChild(timer);
+  }
+  if (timer && (appState.currentView !== 'exam' || appState.examMode !== 'mock')) {
+    timer.remove();
+  }
+
+  let backBtn = document.getElementById('backToTopBtn');
+  if (!backBtn) {
+    backBtn = document.createElement('button');
+    backBtn.id = 'backToTopBtn';
+    backBtn.className = 'back-to-top';
+    backBtn.type = 'button';
+    backBtn.setAttribute('aria-label', 'Back to top');
+    backBtn.textContent = '↑';
+    backBtn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.body.appendChild(backBtn);
+  }
+  const shouldShowBackToTop = window.scrollY > 180 && appState.currentView !== 'landing';
+  backBtn.style.display = shouldShowBackToTop ? 'flex' : 'none';
+
+  refreshFloatingTimer();
+}
+
+function refreshFloatingTimer() {
+  const timerEl = document.getElementById('floatingTimer');
+  if (!timerEl) return;
+  timerEl.textContent = formatTime(appState.timeRemaining || 0);
+  timerEl.classList.toggle('warning', appState.timeRemaining > 0 && appState.timeRemaining < 300);
+  timerEl.classList.toggle('danger', appState.timeRemaining > 0 && appState.timeRemaining < 120);
 }
 
 function updateHeader() {
   if (appState.currentUser) {
-    headerRight.innerHTML = `
-      <span class="user-chip">${escapeHtml(appState.currentUser.email)}</span>
-      ${appState.currentView !== 'exam' ? '<button class="btn btn-secondary" id="profileBtn" style="padding:6px 12px;font-size:13px;">Profile & Account</button>' : ''}
-      <button class="btn btn-secondary" id="logoutBtn" style="padding:6px 12px;font-size:13px;">Logout</button>`;
-    document.getElementById('logoutBtn').onclick = logout;
+    const profileBtnMarkup = appState.currentView !== 'exam'
+      ? '<button class="icon-btn" id="profileBtn" aria-label="Profile and account" title="Profile & Account">' + profileIconSvg() + '</button>'
+      : '';
+    headerRight.innerHTML = '<span class="user-chip">' + escapeHtml(appState.currentUser.email) + '</span>' + profileBtnMarkup;
     const profileBtn = document.getElementById('profileBtn');
     if (profileBtn) profileBtn.onclick = () => {
       appState.accountProfile = null;
@@ -170,6 +224,31 @@ function logout() {
   appState.history = [];
   localStorage.removeItem('np_user');
   setView('auth');
+}
+
+// ===== Landing Screen =====
+function renderLanding() {
+  main.innerHTML = `
+    <div class="landing-wrap">
+      <div class="landing-card card">
+        <div class="landing-badge">NursePrep Pro</div>
+        <h1>Practice smarter for your nursing exam goals.</h1>
+        <p>Train with NCLEX, Prometric, Licence, and IBN SINA practice sets backed by adaptive review and score tracking.</p>
+        <div class="landing-actions">
+          <button class="btn btn-primary" id="landingRegisterBtn">Register</button>
+          <button class="btn btn-secondary" id="landingLoginBtn">Login</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('landingRegisterBtn').onclick = () => {
+    authMode = 'register';
+    setView('auth');
+  };
+  document.getElementById('landingLoginBtn').onclick = () => {
+    authMode = 'login';
+    setView('auth');
+  };
 }
 
 // ===== Auth Screen =====
@@ -395,7 +474,7 @@ function renderDashboard() {
   const totalQ = overall.totalQuestions != null ? overall.totalQuestions : 0;
   const overallAcc = overall.overallAccuracy != null ? overall.overallAccuracy : 0;
 
-  // score trend bars (last 8 sessions, oldest->newest)
+  // score trend bars (last 10 sessions, oldest->newest)
   const orderedSessions = sessions
     .map((session, index) => ({ session, index, date: parseSessionDate(session.timestamp) }))
     .sort((a, b) => {
@@ -404,19 +483,19 @@ function renderDashboard() {
       if (b.date) return 1;
       return a.index - b.index;
     });
-  const trend = orderedSessions.slice(0, 8).reverse();
+  const trend = orderedSessions.slice(-10).reverse();
   const maxScore = 100;
   const barsHtml = trend.length ? trend.map(({ session, date }) => {
     const score = Math.min(maxScore, Math.max(0, Number(session.score) || 0));
-    const h = Math.max(4, Math.round((score / maxScore) * 80));
+    const h = Math.max(8, Math.round((score / maxScore) * 86));
     const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
-    const sessionLabel = session.mode === 'mock' ? 'Mock Exam' : session.mode === 'tutor' ? 'Tutor Mode' : session.mode || 'Exam';
-    const dateLabel = date ? date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) : 'Date unavailable';
+    const sessionLabel = session.mode === 'mock' ? 'Mock' : session.mode === 'tutor' ? 'Tutor' : session.mode || 'Exam';
+    const dateLabel = date ? date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) : 'Date';
     const tooltip = `${sessionLabel} · ${score}%${date ? ' · ' + date.toLocaleString() : ''}`;
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:28px;">
-      <div title="${escapeHtml(tooltip)}" style="font-size:11px;font-weight:600;color:${color};">${score}%</div>
-      <div title="${escapeHtml(tooltip)}" style="width:100%;max-width:32px;height:${h}px;background:${color};border-radius:4px 4px 0 0;min-height:4px;"></div>
-      <div title="${escapeHtml(tooltip)}" style="font-size:10px;color:var(--text-muted);">${escapeHtml(dateLabel)}</div>
+    return `<div class="trend-bar" title="${escapeHtml(tooltip)}">
+      <div class="trend-score" style="color:${color};">${score}%</div>
+      <div class="trend-fill" style="height:${h}px;background:${color};"></div>
+      <div class="trend-date">${escapeHtml(dateLabel)}</div>
     </div>`;
   }).join('') : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
 
@@ -442,7 +521,13 @@ function renderDashboard() {
     <div class="card">
       <h1 style="font-size:22px;font-weight:700;margin-bottom:4px;">Hello, ${escapeHtml(u.email.split('@')[0])}</h1>
       <p style="color:var(--text-muted);margin-bottom:20px;">Target exam: <strong>${escapeHtml(u.target_exam)}</strong></p>
-      ${loading ? '<div class="loading-wrap"><div class="spinner"></div><p style="margin-top:12px;">Loading analytics...</p></div>' : appState.dashboardError ? `
+      ${loading ? `
+      <div class="loading-wrap">
+        <div class="logo-preloader-mark" aria-hidden="true" style="width:80px;height:80px;">
+          <img src="assets/images/android-chrome-192x192.png" alt="" />
+        </div>
+        <p class="logo-preloader-label">Loading analytics...</p>
+      </div>` : appState.dashboardError ? `
       <div class="error-state">
         <h3>Session data unavailable</h3>
         <p style="color:var(--text-muted);margin-bottom:16px;">${escapeHtml(appState.dashboardError)}</p>
@@ -480,9 +565,37 @@ function renderDashboard() {
     ${!loading && !appState.dashboardError ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Score Trend</h2>
-      <div style="display:flex;align-items:flex-end;gap:8px;padding:12px 0 4px;min-height:110px;border-bottom:1px solid var(--border-gray);">
-        ${barsHtml}
-      </div>
+    <div class="score-trend-chart">
+       ${trend.length ? (() => {
+         const grades = trend.map(({ session }) => Math.min(100, Math.max(0, Number(session.score) || 0)));
+         const labels = trend.map(({ date }) => date ? date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '');
+         const total = grades.reduce((sum, value) => sum + value, 0);
+         const positive = Math.round((grades.filter(value => value >= 60).length / Math.max(1, grades.length)) * 100);
+         const average = grades.length ? Math.round(total / grades.length) : 0;
+         const pieSegments = [
+           { label: 'Pass', value: positive, color: 'var(--success-green)' },
+           { label: 'Borderline', value: Math.max(0, Math.min(100, Math.round((grades.filter(value => value >= 40 && value < 60).length / Math.max(1, grades.length)) * 100))), color: 'var(--warning-amber)' },
+           { label: 'Need work', value: 100 - positive - Math.max(0, Math.min(100, Math.round((grades.filter(value => value >= 40 && value < 60).length / Math.max(1, grades.length)) * 100))), color: 'var(--error-red)' }
+         ];
+         const statRing = `
+           <div class="mini-chart-legend">
+             <div class="legend-item"><span class="legend-dot success"></span> Pass ${pieSegments[0].value}%</div>
+             <div class="legend-item"><span class="legend-dot warning"></span> Borderline ${pieSegments[1].value}%</div>
+             <div class="legend-item"><span class="legend-dot danger"></span> Need work ${pieSegments[2].value}%</div>
+           </div>
+           <div class="mini-donut" style="--chart-average:${average}%; --donut-color: linear-gradient(135deg, var(--success-green), var(--warning-amber));">
+             <div class="mini-donut-inner">
+               <strong>${average}%</strong>
+               <span>Avg</span>
+             </div>
+           </div>
+           <div class="mini-chart-labels">
+             ${labels.map((label, index) => `<span>${escapeHtml(label || 'N/A')}</span>`).join('')}
+           </div>
+         `;
+         return statRing;
+       })() : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>'}
+    </div>
     </div>
 
     <div class="card">
@@ -496,17 +609,18 @@ function renderDashboard() {
     ${sessions.length ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Recent Sessions</h2>
-      ${orderedSessions.slice(0,10).map(({session: h, date}) => {
-        const sessionLabel = h.mode === 'mock' ? 'Mock Exam' : h.mode === 'tutor' ? 'Tutor Mode' : h.mode || 'Exam';
-        const score = Math.min(100, Math.max(0, Number(h.score) || 0));
-        return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-gray);">
-          <div>
-            <div style="font-weight:600;">${escapeHtml(sessionLabel)} — ${escapeHtml(h.exam_type || u.target_exam)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${date ? date.toLocaleString() : 'Date unavailable'}${Number(h.total) > 0 ? ` · ${Number(h.correct) || 0}/${Number(h.total)} correct` : ''}</div>
-          </div>
-          <span style="font-weight:700;color:${score>=70?'var(--success-green)':score>=50?'var(--warning-amber)':'var(--error-red)'};">${score}%</span>
-        </div>`}).join('')}
+     <div class="session-graph">
+       ${orderedSessions.slice(0, 15).map(({session: h, date}) => {
+         const sessionLabel = h.mode === 'mock' ? 'Mock' : h.mode === 'tutor' ? 'Tutor' : h.mode || 'Exam';
+         const score = Math.min(100, Math.max(0, Number(h.score) || 0));
+         const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
+         const tooltip = `${sessionLabel} · ${escapeHtml(h.exam_type || u.target_exam)} · ${score}%`;
+         return `<div class="session-bar" title="${tooltip}">
+           <div class="session-bar-fill" style="height:${Math.max(12, score)}%;background:${color};"></div>
+           <span class="session-bar-label">${score}%</span>
+         </div>`;
+       }).join('')}
+     </div>
     </div>` : ''}` : ''}`;
 
   const btn = document.getElementById('startExamBtn');
@@ -560,21 +674,23 @@ function formatAge(birthDate) {
 function renderProfile() {
   const profile = appState.accountProfile || {};
   const groups = ['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+  const profileUnlocked = !!appState.accountProfile;
+
   main.innerHTML = `
     <div class="card profile-card">
       <h1 class="auth-title">Profile &amp; Account</h1>
-      <p class="auth-sub">Manage your profile details, target exam, and password.</p>
-      <p class="profile-privacy-note">Profile details are stored in the app’s linked Google Sheet. Blood group, address, nursing college, and birthday are optional; only share details you are comfortable providing.</p>
+      <p class="auth-sub">Manage your profile details, target exam, and account actions.</p>
+      <p class="profile-privacy-note">Your profile is stored in the app’s linked Google Sheet. Blood group, address, nursing college, and birthday are optional; only share what you’re comfortable providing.</p>
       <form id="profileForm">
         <div class="form-group">
-          <label class="form-label" for="currentPassword">Current password</label>
+          <label class="form-label" for="currentPassword">Current password${profileUnlocked ? ' (required for password changes and account actions)' : ''}</label>
           <div class="password-input-wrap">
-            <input class="form-input" type="password" id="currentPassword" required autocomplete="current-password" value="${escapeHtml(appState.accountCurrentPassword)}" />
+            <input class="form-input" type="password" id="currentPassword" autocomplete="current-password" value="${escapeHtml(appState.accountCurrentPassword)}" />
             <button class="password-toggle" type="button" id="toggleCurrentPassword" aria-label="Show current password" aria-pressed="false">Show</button>
           </div>
-          <small class="profile-help">Required to view or save your private profile details.</small>
+          <small class="profile-help">${profileUnlocked ? 'Only needed for password updates, session clear, and account deletion.' : 'Enter your current password to unlock your saved profile details.'}</small>
         </div>
-        ${appState.accountProfile ? `
+        ${profileUnlocked ? `
           <h2 class="section-title profile-section-title">Personal details</h2>
           <div class="profile-grid">
             <div class="form-group">
@@ -625,6 +741,14 @@ function renderProfile() {
             <textarea class="form-input profile-textarea" id="address" name="address">${escapeHtml(profile.address || '')}</textarea>
           </div>
 
+          <h2 class="section-title profile-section-title">Session history</h2>
+          <div class="profile-grid" style="grid-template-columns:1fr;">
+            <div class="form-group">
+              <button class="btn btn-secondary btn-block" type="button" id="clearSessionsBtn">Clear all recent session history</button>
+              <small class="profile-help">This removes your saved exam history and progress. Requires your current password.</small>
+            </div>
+          </div>
+
           <h2 class="section-title profile-section-title">Change password (optional)</h2>
           <div class="profile-grid">
             <div class="form-group">
@@ -633,7 +757,7 @@ function renderProfile() {
                 <input class="form-input" type="password" id="newPassword" autocomplete="new-password" minlength="8" />
                 <button class="password-toggle" type="button" id="toggleNewPassword" aria-label="Show new password" aria-pressed="false">Show</button>
               </div>
-              <small class="profile-help">Leave blank to keep your current password. Use at least 8 characters.</small>
+              <small class="profile-help">Leave blank to keep your current password. Requires the current password to apply.</small>
             </div>
             <div class="form-group">
               <label class="form-label" for="confirmPassword">Confirm new password</label>
@@ -661,10 +785,11 @@ function renderProfile() {
           </section>
         ` : `
           <button class="btn btn-primary btn-block" type="button" id="loadProfileBtn" ${appState.profileLoading ? 'disabled' : ''}>
-            ${appState.profileLoading ? '<span class="spinner"></span> Loading profile...' : 'Continue to Profile'}
+            ${appState.profileLoading ? '<span class="spinner"></span> Unlocking profile...' : 'Unlock profile'}
           </button>
         `}
         <button class="btn btn-secondary btn-block profile-back-btn" type="button" id="profileBackBtn">Back to Dashboard</button>
+        ${profileUnlocked ? '<button class="btn btn-secondary btn-block" type="button" id="logoutFromProfileBtn">Log out</button>' : ''}
       </form>
     </div>`;
 
@@ -675,6 +800,8 @@ function renderProfile() {
   };
   const loadButton = document.getElementById('loadProfileBtn');
   if (loadButton) loadButton.onclick = loadProfile;
+  const logoutFromProfileBtn = document.getElementById('logoutFromProfileBtn');
+  if (logoutFromProfileBtn) logoutFromProfileBtn.onclick = logout;
   wirePasswordToggle('currentPassword', 'toggleCurrentPassword');
   wirePasswordToggle('newPassword', 'toggleNewPassword');
   wirePasswordToggle('confirmPassword', 'toggleConfirmPassword');
@@ -695,9 +822,10 @@ function renderProfile() {
   };
 
   const form = document.getElementById('profileForm');
-  if (appState.accountProfile) {
+  if (profileUnlocked) {
     form.onsubmit = handleProfileSave;
     document.getElementById('deleteAccountBtn').onclick = showAccountDeleteConfirmation;
+    document.getElementById('clearSessionsBtn').onclick = clearSessionHistory;
     document.getElementById('deleteConfirmationText').oninput = (event) => {
       document.getElementById('confirmAccountDeleteBtn').disabled = event.target.value !== 'DELETE';
     };
@@ -712,7 +840,15 @@ function renderProfile() {
 }
 
 async function loadProfile() {
-  appState.accountCurrentPassword = document.getElementById('currentPassword').value;
+  const enteredPassword = document.getElementById('currentPassword') ? document.getElementById('currentPassword').value : '';
+  if (!enteredPassword) {
+    showToast('Enter your current password to unlock your profile.');
+    const passwordInput = document.getElementById('currentPassword');
+    if (passwordInput) passwordInput.focus();
+    return;
+  }
+
+  appState.accountCurrentPassword = enteredPassword;
   appState.profileLoading = true;
   renderProfile();
   try {
@@ -725,6 +861,7 @@ async function loadProfile() {
     localStorage.setItem('np_user', JSON.stringify(appState.currentUser));
     showToast('Profile loaded.');
   } catch (err) {
+    appState.accountProfile = null;
     showToast(err.message || 'Unable to load profile.');
   } finally {
     appState.profileLoading = false;
@@ -732,10 +869,45 @@ async function loadProfile() {
   }
 }
 
+async function clearSessionHistory() {
+  const currentPassword = document.getElementById('currentPassword') ? document.getElementById('currentPassword').value : '';
+  if (!currentPassword) {
+    showToast('Enter your current password to clear recent sessions.');
+    const pwd = document.getElementById('currentPassword');
+    if (pwd) pwd.focus();
+    return;
+  }
+
+  if (!window.confirm('Clear your saved exam session history and progress? This cannot be undone.')) return;
+
+  try {
+    const result = await Api.clearSessions(appState.currentUser.user_id, currentPassword);
+    if (!result || !result.success) {
+      throw new Error((result && result.error) || 'Unable to clear sessions.');
+    }
+    appState.dashboard = null;
+    appState.dashboardLoaded = false;
+    appState.dashboardLoading = false;
+    appState.history = [];
+    appState.accountProfile = appState.accountProfile || {};
+    showToast('Session history cleared.');
+    loadDashboardData();
+    renderProfile();
+  } catch (err) {
+    showToast(err.message || 'Unable to clear sessions.');
+  }
+}
+
 async function handleProfileSave(event) {
   event.preventDefault();
+  const currentPassword = document.getElementById('currentPassword').value;
   const newPassword = document.getElementById('newPassword').value;
   const confirmPassword = document.getElementById('confirmPassword').value;
+  if (newPassword && !currentPassword) {
+    showToast('Enter your current password to update your password.');
+    document.getElementById('currentPassword').focus();
+    return;
+  }
   if (newPassword && newPassword !== confirmPassword) {
     showToast('New password and confirmation do not match.');
     return;
@@ -762,7 +934,7 @@ async function handleProfileSave(event) {
   try {
     const result = await Api.updateAccount(
       appState.currentUser.user_id,
-      appState.accountCurrentPassword,
+      currentPassword,
       document.getElementById('targetExamSetting').value,
       profile,
       newPassword
@@ -772,7 +944,7 @@ async function handleProfileSave(event) {
     }
     appState.accountProfile = result.profile || profile;
     appState.currentUser.target_exam = result.target_exam;
-    appState.accountCurrentPassword = '';
+    appState.accountCurrentPassword = currentPassword;
     appState.examConfig.examType = result.target_exam;
     appState.dashboardLoaded = false;
     appState.dashboard = null;
@@ -989,7 +1161,8 @@ function startTimer() {
       if (appState.timeRemaining < 120) badge.classList.add('danger');
       else if (appState.timeRemaining < 300) badge.classList.add('warning');
     }
-  }, 1000);
+      refreshFloatingTimer();
+    }, 1000);
 }
 
 function exitExam() {
@@ -1398,5 +1571,5 @@ function renderReview() {
   if (saved) {
     try { appState.currentUser = JSON.parse(saved); setView('dashboard'); return; } catch(e){}
   }
-  setView('auth');
+  setView('landing');
 })();

@@ -418,6 +418,8 @@ function doPost(e) {
       return handleUpdateAccount(body);
     case "delete_account":
       return handleDeleteAccount(body);
+    case "clear_sessions":
+      return handleClearSessions(body);
     case "grade_question":
       return handleGradeQuestion(body);
     case "submit_exam":
@@ -556,15 +558,21 @@ function handleLogin(body) {
 function handleGetProfile(body) {
   const userId = String(body.user_id || "");
   const currentPassword = body.current_password || "";
-  if (!userId || !currentPassword) {
+  if (!userId) {
     return corsResponse({
       success: false,
-      error: "User ID and current password are required.",
+      error: "User ID is required.",
     });
   }
   const users = getSheet("Users");
   let found = findUserById(users, userId);
-  if (!found || sha256(currentPassword) !== String(found.values[2])) {
+  if (!found) {
+    return corsResponse({
+      success: false,
+      error: "User not found.",
+    });
+  }
+  if (currentPassword && sha256(currentPassword) !== String(found.values[2])) {
     return corsResponse({
       success: false,
       error: "Current password is incorrect.",
@@ -585,10 +593,16 @@ function handleUpdateAccount(body) {
   const targetExam = String(body.target_exam || "");
   const profile = body.profile || {};
   const newPassword = body.new_password || "";
-  if (!userId || !currentPassword) {
+  if (!userId) {
     return corsResponse({
       success: false,
-      error: "User ID and current password are required.",
+      error: "User ID is required.",
+    });
+  }
+  if (newPassword && !currentPassword) {
+    return corsResponse({
+      success: false,
+      error: "Current password is required to change your password.",
     });
   }
   if (SUPPORTED_EXAM_TYPES.indexOf(targetExam) < 0) {
@@ -654,7 +668,13 @@ function handleUpdateAccount(body) {
 
   const users = getSheet("Users");
   let found = findUserById(users, userId);
-  if (!found || sha256(currentPassword) !== String(found.values[2])) {
+  if (!found) {
+    return corsResponse({
+      success: false,
+      error: "User not found.",
+    });
+  }
+  if (currentPassword && sha256(currentPassword) !== String(found.values[2])) {
     return corsResponse({
       success: false,
       error: "Current password is incorrect.",
@@ -728,6 +748,53 @@ function handleDeleteAccount(body) {
   });
   users.deleteRow(user.row);
   return corsResponse({ success: true });
+}
+
+function handleClearSessions(body) {
+  const userId = String(body.user_id || "");
+  const currentPassword = body.current_password || "";
+  if (!userId || !currentPassword) {
+    return corsResponse({
+      success: false,
+      error: "User ID and current password are required.",
+    });
+  }
+
+  const users = getSheet("Users");
+  const user = findUserById(users, userId);
+  if (!user || sha256(currentPassword) !== String(user.values[2])) {
+    return corsResponse({
+      success: false,
+      error: "Current password is incorrect.",
+    });
+  }
+
+  const sessions = getSheet("Sessions");
+  const progress = getSheet("Progress");
+  const sessionData = sessions.getDataRange().getValues();
+  const sessionIds = {};
+  const rowsToDelete = [];
+  for (let i = 1; i < sessionData.length; i++) {
+    if (String(sessionData[i][1]) === userId) {
+      sessionIds[String(sessionData[i][0])] = true;
+      rowsToDelete.push(i + 1);
+    }
+  }
+
+  const progressData = progress.getDataRange().getValues();
+  const progressRows = [];
+  for (let i = 1; i < progressData.length; i++) {
+    if (sessionIds[String(progressData[i][1])]) progressRows.push(i + 1);
+  }
+
+  progressRows.reverse().forEach(function (row) {
+    progress.deleteRow(row);
+  });
+  rowsToDelete.reverse().forEach(function (row) {
+    sessions.deleteRow(row);
+  });
+
+  return corsResponse({ success: true, deleted: rowsToDelete.length });
 }
 
 // ---------- Exam retrieval (scrubbed) ----------

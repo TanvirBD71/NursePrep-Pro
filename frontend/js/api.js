@@ -42,6 +42,12 @@ const Api = {
       current_password: currentPassword
     });
   },
+  clearSessions(userId, currentPassword) {
+    return this.request('clear_sessions', 'POST', {
+      user_id: userId,
+      current_password: currentPassword
+    });
+  },
   getExam(examType, count, category) {
     let url = API_BASE + '?action=get_exam&exam_type=' + encodeURIComponent(examType) + '&count=' + encodeURIComponent(count);
     if (category) url += '&category=' + encodeURIComponent(category);
