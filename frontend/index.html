@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NursePrep Pro — Free NCLEX & Prometric Prep</title>
   <meta name="description" content="Free, unlimited NCLEX-RN and Prometric exam simulations for nursing students." />
+  <meta name="theme-color" content="#006A4E" />
+  <link rel="icon" href="assets/images/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="16x16" href="assets/images/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/images/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/images/apple-touch-icon.png" />
+  <link rel="manifest" href="site.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -12,9 +18,26 @@
 </head>
 <body>
   <div id="app">
+    <div class="medical-background" aria-hidden="true">
+      <svg class="medical-icon medical-icon-cross" viewBox="0 0 64 64">
+        <path d="M25 8h14v17h17v14H39v17H25V39H8V25h17z" />
+      </svg>
+      <svg class="medical-icon medical-icon-heart" viewBox="0 0 64 64">
+        <path d="M32 54S8 40 8 23a13 13 0 0 1 24-7 13 13 0 0 1 24 7c0 17-24 31-24 31z" />
+        <path d="M13 32h11l5-10 8 20 5-10h9" />
+      </svg>
+      <svg class="medical-icon medical-icon-stethoscope" viewBox="0 0 64 64">
+        <path d="M15 9v15a13 13 0 0 0 26 0V9M10 9h10M36 9h10M28 37v5a13 13 0 0 0 26 0V35" />
+        <circle cx="51" cy="29" r="6" />
+      </svg>
+      <svg class="medical-icon medical-icon-pill" viewBox="0 0 64 64">
+        <path d="M17 47a13 13 0 0 1 0-18l12-12a13 13 0 0 1 18 18L35 47a13 13 0 0 1-18 0z" />
+        <path d="m24 23 17 17" />
+      </svg>
+    </div>
     <header class="app-header">
       <div class="brand">
-        <span class="brand-icon" aria-hidden="true">+</span>
+        <img class="brand-icon" src="assets/images/android-chrome-192x192.png" alt="" />
         <span class="brand-name">NursePrep Pro</span>
       </div>
       <div class="header-right" id="headerRight"></div>

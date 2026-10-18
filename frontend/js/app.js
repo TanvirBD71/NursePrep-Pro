@@ -41,6 +41,45 @@ function showToast(msg, ms) {
   toast._t = setTimeout(() => toast.classList.remove('show'), ms || 2500);
 }
 
+function showLogoPreloader(label) {
+  const overlay = document.createElement('div');
+  overlay.className = 'logo-preloader';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  overlay.dataset.startedAt = String(Date.now());
+
+  const mark = document.createElement('div');
+  mark.className = 'logo-preloader-mark';
+  const logo = document.createElement('img');
+  logo.src = 'assets/images/android-chrome-192x192.png';
+  logo.alt = '';
+  mark.appendChild(logo);
+
+  const message = document.createElement('p');
+  message.className = 'logo-preloader-label';
+  message.textContent = label;
+  overlay.append(mark, message);
+  document.body.appendChild(overlay);
+
+  let finishPromise;
+  return {
+    finish() {
+      if (!finishPromise) {
+        finishPromise = (async () => {
+          const elapsed = Date.now() - Number(overlay.dataset.startedAt);
+          if (elapsed < 1500) {
+            await new Promise(resolve => setTimeout(resolve, 1500 - elapsed));
+          }
+          overlay.classList.add('is-hiding');
+          await new Promise(resolve => setTimeout(resolve, 200));
+          overlay.remove();
+        })();
+      }
+      return finishPromise;
+    }
+  };
+}
+
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -257,6 +296,7 @@ async function handleAuthSubmit(ev) {
   if (!ok) return;
   const btn = document.getElementById('authSubmit');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  const preloader = authMode === 'login' ? showLogoPreloader('Signing in...') : null;
   try {
     let res;
     if (authMode === 'login') {
@@ -276,6 +316,7 @@ async function handleAuthSubmit(ev) {
   } catch (err) {
     showErrorState(err.message, () => renderAuth());
   } finally {
+    if (preloader) await preloader.finish();
     btn.disabled = false;
     btn.textContent = authMode === 'login' ? 'Sign In' : 'Register';
   }
@@ -1133,9 +1174,11 @@ async function submitMockExam() {
     q_id: q.q_id,
     user_answer: appState.examAnswers[q.q_id] !== undefined ? appState.examAnswers[q.q_id] : null
   }));
+  let examSubmitted = false;
   try {
     const res = await Api.submitExam(appState.currentUser.user_id, 'mock', answers, appState.examConfig.examType);
     if (res.success) {
+      examSubmitted = true;
       appState.lastResult = res;
       appState.history.push({
         mode: 'Mock Exam',
@@ -1150,6 +1193,10 @@ async function submitMockExam() {
     }
   } catch (err) {
     showErrorState(err.message, submitMockExam);
+  } finally {
+    if (examSubmitted) {
+      await showLogoPreloader('Exam complete!').finish();
+    }
   }
 }
 
@@ -1199,6 +1246,7 @@ async function submitTutorExam() {
   }
   appState.currentIndex = 0;
   setView('review');
+  await showLogoPreloader('Exam complete!').finish();
 }
 
 // ===== Review =====
