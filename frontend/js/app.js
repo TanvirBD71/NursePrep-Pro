@@ -39,6 +39,30 @@ function setLoading(html) {
   main.innerHTML = '<div class="loading-wrap"><div class="spinner"></div><p style="margin-top:12px;">' + (html || 'Loading...') + '</p></div>';
 }
 
+function showPreloader(ms, cb) {
+  const el = document.createElement('div');
+  el.id = 'preloaderOverlay';
+  el.innerHTML = '<div class="spinner"></div>';
+  el.style.cssText = 'position:fixed;inset:0;background:var(--bg-white);display:grid;place-items:center;z-index:9999;opacity:1;transition:opacity .3s;';
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    setTimeout(() => { el.remove(); if (cb) cb(); }, 300);
+  }, ms || 1000);
+}
+
+function setupBackToTop() {
+  const btn = document.getElementById('backToTop');
+  if (!btn) return;
+  const onScroll = () => {
+    if (window.scrollY > 300) btn.classList.add('show');
+    else btn.classList.remove('show');
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+  onScroll();
+}
+
 function showErrorState(msg, retryFn) {
   main.innerHTML = `
     <div class="error-state">
@@ -68,14 +92,38 @@ function render() {
 }
 
 function updateHeader() {
+  const nav = document.getElementById('appNav');
+  const toggle = document.getElementById('navToggle');
   if (appState.currentUser) {
+    if (nav) {
+      nav.innerHTML = `
+        <a class="nav-link ${appState.currentView==='dashboard'?'active':''}" data-view="dashboard">Dashboard</a>
+        <a class="nav-link ${appState.currentView==='config'?'active':''}" data-view="config">New Exam</a>`;
+      nav.querySelectorAll('.nav-link').forEach(a => {
+        a.onclick = (e) => { e.preventDefault(); setView(a.dataset.view); closeNav(); };
+      });
+    }
     headerRight.innerHTML = `
       <span class="user-chip">${escapeHtml(appState.currentUser.email)}</span>
       <button class="btn btn-secondary" id="logoutBtn" style="padding:6px 12px;font-size:13px;">Logout</button>`;
     document.getElementById('logoutBtn').onclick = logout;
   } else {
+    if (nav) nav.innerHTML = '';
     headerRight.innerHTML = '';
   }
+  if (toggle) {
+    toggle.onclick = () => {
+      const navEl = document.getElementById('appNav');
+      if (!navEl) return;
+      navEl.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', navEl.classList.contains('open'));
+    };
+  }
+}
+
+function closeNav() {
+  const nav = document.getElementById('appNav');
+  if (nav) nav.classList.remove('open');
 }
 
 function logout() {
@@ -578,7 +626,7 @@ function renderExam() {
         <button class="btn btn-secondary" id="prevBtn" ${idx===0?'disabled':''}>Previous</button>
         <div style="display:flex;gap:12px;">
           ${isMock ? '' : (graded ? '' : `<button class="btn btn-primary" id="submitQBtn" ${userAns===undefined||userAns===null||(Array.isArray(userAns)&&!userAns.length)?'disabled':''}>Submit Answer</button>`)}
-          ${idx < total-1 ? `<button class="btn btn-secondary" id="nextBtn" ${nextDisabled?'disabled':''}>Next</button>` : `<button class="btn btn-success" id="finishBtn">${isMock?'Finish Exam':'Finish'}</button>`}
+          ${idx < total-1 ? `<button class="btn btn-secondary" id="nextBtn" ${nextDisabled?'disabled':''}>Next</button>` : `<button class="btn btn-success" id="finishBtn" ${isMock && nextDisabled?'disabled':''}>${isMock?'Finish Exam':'Finish'}</button>`}
         </div>
       </div>
     </div>`;
@@ -593,11 +641,27 @@ function renderExam() {
           cb.checked = !cb.checked;
           toggleSata(q.q_id, btn.dataset.opt, cb.checked);
           btn.classList.toggle('selected', cb.checked);
+          if (appState.examMode === 'mock') {
+            const arr = appState.examAnswers[q.q_id];
+            const has = Array.isArray(arr) && arr.length > 0;
+            const nb = document.getElementById('nextBtn');
+            if (nb) nb.disabled = !has;
+            const fb = document.getElementById('finishBtn');
+            if (fb) fb.disabled = !has;
+          }
         };
         const cb = btn.querySelector('input');
         cb.onchange = () => {
           toggleSata(q.q_id, btn.dataset.opt, cb.checked);
           btn.classList.toggle('selected', cb.checked);
+          if (appState.examMode === 'mock') {
+            const arr = appState.examAnswers[q.q_id];
+            const has = Array.isArray(arr) && arr.length > 0;
+            const nb = document.getElementById('nextBtn');
+            if (nb) nb.disabled = !has;
+            const fb = document.getElementById('finishBtn');
+            if (fb) fb.disabled = !has;
+          }
         };
       });
     } else {
@@ -609,7 +673,13 @@ function renderExam() {
           const sb = document.getElementById('submitQBtn');
           if (sb) sb.disabled = false;
           const nb = document.getElementById('nextBtn');
-          if (nb && !isMock) nb.disabled = true; // must submit first in tutor
+          const fb = document.getElementById('finishBtn');
+          if (appState.examMode === 'mock') {
+            if (nb) nb.disabled = false;
+            if (fb) fb.disabled = false;
+          } else {
+            if (nb) nb.disabled = true; // must submit first in tutor
+          }
         };
       });
     }
@@ -676,7 +746,7 @@ async function submitMockExam() {
         score: res.score
       });
       appState.dashboardLoaded = false;
-      setView('review');
+      showPreloader(1000, () => setView('review'));
     } else {
       showToast(res.error || 'Submit failed.');
       renderExam();
@@ -707,7 +777,7 @@ async function submitTutorExam() {
     // non-fatal: still show review
   }
   appState.currentIndex = 0;
-  setView('review');
+  showPreloader(1000, () => setView('review'));
 }
 
 // ===== Review =====
@@ -759,9 +829,10 @@ function renderReview() {
 
 // ===== Init =====
 (function init() {
+  setupBackToTop();
   const saved = localStorage.getItem('np_user');
   if (saved) {
     try { appState.currentUser = JSON.parse(saved); setView('dashboard'); return; } catch(e){}
   }
-  setView('auth');
+  showPreloader(1000, () => setView('auth'));
 })();
