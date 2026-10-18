@@ -30,7 +30,9 @@ A zero-cost, serverless nursing exam preparation platform.
 - `POST ?action=register` — `{email, password, target_exam}` → `{success, user_id}`
 - `GET  ?action=get_exam` — `?exam_type=&count=&category=` → `{questions:[...]}`
 - `POST ?action=grade_question` — `{q_id, user_answer}` → `{correct_answer, rationale, is_correct}`
-- `POST ?action=submit_exam` — `{user_id, mode, answers}` → `{score, total, session_id}`
+- `POST ?action=submit_exam` — `{user_id, mode, exam_type, answers}` → `{score, total, session_id}`
+- `GET  ?action=get_dashboard` — `?user_id=` → `{sessions, categoryStats, overall}`
+- `GET  ?action=get_categories` — `?exam_type=` → `{categories:[...]}`
 
 ## Notes
 - Passwords are SHA-256 hashed before storage.

@@ -10,7 +10,11 @@ const appState = {
   timerInterval: null,
   timeRemaining: 0,
   examConfig: { examType: 'NCLEX-RN', count: 10, category: '' },
-  categories: ['All', 'Pharmacological Therapies', 'Infection Prevention & Control'],
+  categories: ['All'],
+  categoriesLoaded: false,
+  dashboard: null,
+  dashboardLoading: false,
+  dashboardLoaded: false,
   history: []
 };
 
@@ -79,6 +83,10 @@ function logout() {
   appState.activeExamData = [];
   appState.examAnswers = {};
   appState.submitted = {};
+  appState.dashboard = null;
+  appState.dashboardLoaded = false;
+  appState.dashboardLoading = false;
+  appState.history = [];
   localStorage.removeItem('np_user');
   setView('auth');
 }
@@ -164,13 +172,97 @@ async function handleAuthSubmit(ev) {
   }
 }
 
+// ===== Dashboard data loading =====
+async function loadDashboardData() {
+  if (!appState.currentUser) return;
+  appState.dashboardLoading = true;
+  renderDashboard();
+  try {
+    const res = await Api.getDashboard(appState.currentUser.user_id);
+    if (res && res.success) {
+      appState.dashboard = {
+        sessions: res.sessions || [],
+        categoryStats: res.categoryStats || [],
+        overall: res.overall || {}
+      };
+      appState.history = (res.sessions || []).map(s => ({
+        mode: s.mode,
+        examType: s.exam_type || appState.currentUser.target_exam,
+        score: s.score,
+        timestamp: s.timestamp,
+        sessionId: s.session_id
+      }));
+    }
+  } catch (err) {
+    // Silently ignore; backend may be an older deployment.
+  }
+  appState.dashboardLoading = false;
+  appState.dashboardLoaded = true;
+  renderDashboard();
+}
+
+function catColor(acc) {
+  if (acc >= 80) return 'var(--success-green)';
+  if (acc >= 60) return 'var(--warning-amber)';
+  return 'var(--error-red)';
+}
+
 // ===== Dashboard =====
 function renderDashboard() {
   const u = appState.currentUser;
+  const d = appState.dashboard || {};
+  const overall = d.overall || {};
+  const sessions = d.sessions || [];
+  const catStats = d.categoryStats || [];
+  const loading = appState.dashboardLoading;
+
+  if (!appState.dashboardLoaded && !loading) {
+    // kick off load after render
+    setTimeout(loadDashboardData, 0);
+  }
+
+  const sessionsCount = overall.sessions != null ? overall.sessions : appState.history.length;
+  const avg = overall.avgScore != null ? overall.avgScore : avgScore();
+  const best = overall.bestScore != null ? overall.bestScore : (appState.history.length ? Math.max.apply(null, appState.history.map(h=>h.score)) : 0);
+  const totalQ = overall.totalQuestions != null ? overall.totalQuestions : 0;
+  const overallAcc = overall.overallAccuracy != null ? overall.overallAccuracy : 0;
+
+  // score trend bars (last 8 sessions, oldest->newest)
+  const trend = sessions.slice().reverse().slice(-8);
+  const maxScore = 100;
+  const barsHtml = trend.length ? trend.map(s => {
+    const h = Math.max(4, Math.round((s.score / maxScore) * 80));
+    const color = s.score >= 70 ? 'var(--success-green)' : (s.score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:28px;">
+      <div style="font-size:11px;font-weight:600;color:${color};">${s.score}</div>
+      <div style="width:100%;max-width:32px;height:${h}px;background:${color};border-radius:4px 4px 0 0;min-height:4px;"></div>
+      <div style="font-size:10px;color:var(--text-muted);">${new Date(s.timestamp).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div>
+    </div>`;
+  }).join('') : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
+
+  // category strength rows
+  const catRows = catStats.length ? catStats.map(c => `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+        <span style="font-weight:600;">${escapeHtml(c.category)}</span>
+        <span style="color:${catColor(c.accuracy)};font-weight:700;">${c.accuracy}% <span style="color:var(--text-muted);font-weight:400;">(${c.correct}/${c.total})</span></span>
+      </div>
+      <div style="height:8px;background:var(--surface-gray);border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:${c.accuracy}%;background:${catColor(c.accuracy)};border-radius:4px;"></div>
+      </div>
+      <div style="margin-top:4px;">
+        <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" data-cat="${escapeHtml(c.category)}" data-practice>Practice</button>
+      </div>
+    </div>`).join('') : (loading ? '<p style="color:var(--text-muted);font-size:13px;">Loading...</p>' : '<p style="color:var(--text-muted);font-size:13px;">No category data yet.</p>');
+
+  // weak categories (accuracy < 70 with at least 3 attempts)
+  const weak = catStats.filter(c => c.total >= 3 && c.accuracy < 70);
+
   main.innerHTML = `
     <div class="card">
       <h1 style="font-size:22px;font-weight:700;margin-bottom:4px;">Hello, ${escapeHtml(u.email.split('@')[0])}</h1>
       <p style="color:var(--text-muted);margin-bottom:20px;">Target exam: <strong>${escapeHtml(u.target_exam)}</strong></p>
+      ${loading ? '<div class="loading-wrap"><div class="spinner"></div><p style="margin-top:12px;">Loading analytics...</p></div>' : `
       <div class="dashboard-grid">
         <div class="stat-card">
           <div class="stat-label">Target Exam</div>
@@ -178,25 +270,67 @@ function renderDashboard() {
         </div>
         <div class="stat-card">
           <div class="stat-label">Sessions Taken</div>
-          <div class="stat-value">${appState.history.length}</div>
+          <div class="stat-value">${sessionsCount}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Avg Score</div>
-          <div class="stat-value">${avgScore()}%</div>
+          <div class="stat-value">${avg}%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Best Score</div>
+          <div class="stat-value">${best}%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Questions Answered</div>
+          <div class="stat-value">${totalQ}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Overall Accuracy</div>
+          <div class="stat-value">${overallAcc}%</div>
         </div>
       </div>
-      <button class="btn btn-primary btn-block" id="startExamBtn" style="margin-top:8px;">Start New Exam / Practice</button>
+      <button class="btn btn-primary btn-block" id="startExamBtn" style="margin-top:8px;">Start New Exam / Practice</button>`}
     </div>
-    ${appState.history.length ? `
+
+    ${!loading ? `
+    <div class="card">
+      <h2 class="section-title" style="margin-top:0;">Score Trend</h2>
+      <div style="display:flex;align-items:flex-end;gap:8px;padding:12px 0 4px;min-height:110px;border-bottom:1px solid var(--border-gray);">
+        ${barsHtml}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title" style="margin-top:0;">Category Strength</h2>
+      ${catRows}
+      ${weak.length ? `<div style="margin-top:12px;padding:12px;background:var(--error-red-soft);border-radius:var(--radius-sm);font-size:13px;">
+        <strong>Focus areas:</strong> ${weak.map(w=>escapeHtml(w.category)).join(', ')}
+      </div>` : ''}
+    </div>
+
+    ${sessions.length ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Recent Sessions</h2>
-      ${appState.history.slice().reverse().map(h => `
-        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-gray);">
-          <span>${escapeHtml(h.mode)} — ${escapeHtml(h.examType)}</span>
-          <span style="font-weight:600;color:${h.score>=70?'var(--success-green)':'var(--error-red)'};">${h.score}%</span>
+      ${sessions.slice(0,10).map(h => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-gray);">
+          <div>
+            <div style="font-weight:600;">${escapeHtml(h.mode)} — ${escapeHtml(h.exam_type || u.target_exam)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${new Date(h.timestamp).toLocaleString()}</div>
+          </div>
+          <span style="font-weight:700;color:${h.score>=70?'var(--success-green)':'var(--error-red)'};">${h.score}%</span>
         </div>`).join('')}
-    </div>` : ''}`;
-  document.getElementById('startExamBtn').onclick = () => setView('config');
+    </div>` : ''}` : ''}`;
+
+  const btn = document.getElementById('startExamBtn');
+  if (btn) btn.onclick = () => setView('config');
+
+  document.querySelectorAll('[data-practice]').forEach(b => {
+    b.onclick = () => {
+      appState.examConfig.category = b.dataset.cat;
+      appState.examConfig.examType = u.target_exam;
+      setView('config');
+    };
+  });
 }
 
 function avgScore() {
@@ -262,8 +396,11 @@ function renderConfig() {
       el.classList.add('selected');
       el.querySelector('input').checked = true;
       appState.examConfig.examType = el.dataset.val;
+      loadCategories(appState.examConfig.examType);
     };
   });
+  // load categories for current exam type
+  loadCategories(cfg.examType);
   document.querySelectorAll('#modeGroup .radio-option').forEach(el => {
     el.onclick = () => {
       document.querySelectorAll('#modeGroup .radio-option').forEach(x=>x.classList.remove('selected'));
@@ -274,6 +411,33 @@ function renderConfig() {
   });
   document.getElementById('backDash').onclick = () => setView('dashboard');
   document.getElementById('beginExam').onclick = beginExam;
+}
+
+async function loadCategories(examType) {
+  try {
+    const res = await Api.getCategories(examType);
+    if (res && res.success) {
+      const cats = res.categories || [];
+      appState.categories = ['All', ...cats];
+      const sel = document.getElementById('category');
+      if (sel) {
+        const current = sel.value;
+        sel.innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option value="${escapeHtml(c)}" ${current===c?'selected':''}>${escapeHtml(c)}</option>`).join('');
+      }
+    } else if (appState.categories.length <= 1) {
+      appState.categories = ['All', 'Pharmacological Therapies', 'Infection Prevention & Control'];
+      const sel = document.getElementById('category');
+      if (sel) {
+        const cats = appState.categories.slice(1);
+        const current = sel.value;
+        sel.innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option value="${escapeHtml(c)}" ${current===c?'selected':''}>${escapeHtml(c)}</option>`).join('');
+      }
+    }
+  } catch (e) {
+    if (appState.categories.length <= 1) {
+      appState.categories = ['All', 'Pharmacological Therapies', 'Infection Prevention & Control'];
+    }
+  }
 }
 
 async function beginExam() {
@@ -463,7 +627,7 @@ function renderExam() {
   const finish = document.getElementById('finishBtn');
   if (finish) finish.onclick = () => {
     if (isMock) submitMockExam();
-    else { appState.currentIndex = 0; setView('review'); }
+    else submitTutorExam();
   };
 }
 
@@ -503,7 +667,7 @@ async function submitMockExam() {
     user_answer: appState.examAnswers[q.q_id] !== undefined ? appState.examAnswers[q.q_id] : null
   }));
   try {
-    const res = await Api.submitExam(appState.currentUser.user_id, 'mock', answers);
+    const res = await Api.submitExam(appState.currentUser.user_id, 'mock', answers, appState.examConfig.examType);
     if (res.success) {
       appState.lastResult = res;
       appState.history.push({
@@ -511,6 +675,7 @@ async function submitMockExam() {
         examType: appState.examConfig.examType,
         score: res.score
       });
+      appState.dashboardLoaded = false;
       setView('review');
     } else {
       showToast(res.error || 'Submit failed.');
@@ -519,6 +684,30 @@ async function submitMockExam() {
   } catch (err) {
     showErrorState(err.message, submitMockExam);
   }
+}
+
+async function submitTutorExam() {
+  setLoading('Saving session...');
+  const answers = appState.activeExamData.map(q => ({
+    q_id: q.q_id,
+    user_answer: appState.examAnswers[q.q_id] !== undefined ? appState.examAnswers[q.q_id] : null
+  }));
+  try {
+    const res = await Api.submitExam(appState.currentUser.user_id, 'tutor', answers, appState.examConfig.examType);
+    if (res.success) {
+      appState.lastResult = res;
+      appState.history.push({
+        mode: 'Tutor Mode',
+        examType: appState.examConfig.examType,
+        score: res.score
+      });
+      appState.dashboardLoaded = false;
+    }
+  } catch (err) {
+    // non-fatal: still show review
+  }
+  appState.currentIndex = 0;
+  setView('review');
 }
 
 // ===== Review =====
@@ -545,6 +734,7 @@ function renderReview() {
     <div class="card">
       <h1 class="auth-title">Review</h1>
       <p class="auth-sub">Your tutor-mode session results.</p>
+      ${appState.lastResult ? `<div class="review-summary"><div class="score-big">${appState.lastResult.score}%</div><div class="score-label">${appState.lastResult.correct} of ${appState.lastResult.total} correct</div></div>` : ''}
       ${appState.activeExamData.map((q, i) => {
         const g = appState.submitted[q.q_id];
         return `

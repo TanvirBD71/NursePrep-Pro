@@ -27,8 +27,16 @@ const Api = {
   gradeQuestion(qId, userAnswer) {
     return this.request('grade_question', 'POST', { q_id: qId, user_answer: userAnswer });
   },
-  submitExam(userId, mode, answers) {
-    return this.request('submit_exam', 'POST', { user_id: userId, mode: mode, answers: answers });
+  submitExam(userId, mode, answers, examType) {
+    return this.request('submit_exam', 'POST', { user_id: userId, mode: mode, exam_type: examType || '', answers: answers });
+  },
+  getDashboard(userId) {
+    return fetch(API_BASE + '?action=get_dashboard&user_id=' + encodeURIComponent(userId)).then(r => r.json());
+  },
+  getCategories(examType) {
+    let url = API_BASE + '?action=get_categories';
+    if (examType) url += '&exam_type=' + encodeURIComponent(examType);
+    return fetch(url).then(r => r.json());
   }
 };
 
