@@ -250,6 +250,59 @@ html, body {
 }
 .score-big { font-size: 48px; font-weight: 700; color: var(--primary-teal); }
 .score-label { color: var(--text-muted); font-size: 14px; }
+.exam-review-question { margin-bottom: 16px; }
+.exam-review-question.is-incorrect { border-left: 5px solid var(--error-red); }
+.exam-review-question.is-correct { border-left: 5px solid var(--success-green); }
+.exam-review-status {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 5px 11px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.exam-review-status.is-incorrect { color: var(--error-red); background: var(--error-red-soft); }
+.exam-review-status.is-correct { color: var(--success-green); background: var(--success-green-soft); }
+.exam-review-options { display: grid; gap: 8px; margin-bottom: 16px; }
+.exam-review-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-gray);
+  border-radius: var(--radius-sm);
+  background: var(--bg-white);
+}
+.exam-review-option.is-correct {
+  border: 2px solid var(--success-green);
+  background: var(--success-green-soft);
+  color: #1B5E20;
+  font-weight: 600;
+}
+.exam-review-option.is-incorrect {
+  border: 2px solid var(--error-red);
+  background: var(--error-red-soft);
+  color: #8E1B1B;
+}
+.exam-review-option-text { flex: 1; }
+.exam-review-option-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.exam-review-rationale {
+  padding: 14px 16px;
+  border: 1px solid var(--success-green);
+  border-left: 5px solid var(--success-green);
+  border-radius: var(--radius-sm);
+  background: var(--success-green-soft);
+  color: #1B5E20;
+}
+.exam-review-correct-answer { margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
+.exam-review-rationale-title { margin-bottom: 4px; font-size: 13px; font-weight: 700; text-transform: uppercase; }
+.exam-review-rationale .rationale-text { color: var(--text-charcoal); }
 
 /* ===== Toast ===== */
 .toast {

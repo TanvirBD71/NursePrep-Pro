@@ -23,6 +23,12 @@ const main = document.getElementById('main');
 const headerRight = document.getElementById('headerRight');
 const toast = document.getElementById('toast');
 
+window.addEventListener('beforeunload', (event) => {
+  if (appState.currentView !== 'exam') return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
 // ===== Utilities =====
 function showToast(msg, ms) {
   toast.textContent = msg;
@@ -456,6 +462,7 @@ async function beginExam() {
     appState.currentIndex = 0;
     appState.examAnswers = {};
     appState.submitted = {};
+    appState.lastResult = null;
     // timer for mock mode: ~1.5 min per question
     if (appState.examMode === 'mock') {
       appState.timeRemaining = appState.activeExamData.length * 90;
@@ -489,6 +496,17 @@ function startTimer() {
       else if (appState.timeRemaining < 300) badge.classList.add('warning');
     }
   }, 1000);
+}
+
+function exitExam() {
+  if (!window.confirm('Exit this exam? Your current answers will be lost.')) return;
+  clearInterval(appState.timerInterval);
+  appState.activeExamData = [];
+  appState.currentIndex = 0;
+  appState.examAnswers = {};
+  appState.submitted = {};
+  appState.timeRemaining = 0;
+  setView('dashboard');
 }
 
 function formatTime(sec) {
@@ -567,11 +585,15 @@ function renderExam() {
         <span class="q-category">${escapeHtml(q.category || q.exam_type)}</span>
         <span style="color:var(--text-muted);font-size:13px;margin-left:8px;">${escapeHtml(q.exam_type)}</span>
       </div>
-      ${timerHtml}
+      <div style="display:flex;align-items:center;gap:12px;">
+        ${timerHtml}
+        <button class="btn btn-secondary" id="exitExamBtn" type="button">Exit Exam</button>
+      </div>
     </div>
     <div class="question-card">
       <div class="q-progress">Question ${idx+1} of ${total}</div>
       <div class="q-text">${escapeHtml(q.question_text)}</div>
+      ${isMock ? '<p class="sata-hint">Your answer is saved automatically. Select Finish Exam on the last question to submit.</p>' : ''}
       ${optionsHtml}
       ${rationaleHtml}
       <div style="display:flex;justify-content:space-between;margin-top:24px;gap:12px;">
@@ -587,16 +609,9 @@ function renderExam() {
   if (!graded) {
     if (sata) {
       document.querySelectorAll('.option-btn').forEach(btn => {
-        btn.onclick = (e) => {
-          if (e.target.tagName === 'INPUT') return;
-          const cb = btn.querySelector('input');
-          cb.checked = !cb.checked;
-          toggleSata(q.q_id, btn.dataset.opt, cb.checked);
-          btn.classList.toggle('selected', cb.checked);
-        };
         const cb = btn.querySelector('input');
         cb.onchange = () => {
-          toggleSata(q.q_id, btn.dataset.opt, cb.checked);
+          toggleSata(q.q_id, btn.dataset.opt, cb.checked, isMock);
           btn.classList.toggle('selected', cb.checked);
         };
       });
@@ -609,11 +624,13 @@ function renderExam() {
           const sb = document.getElementById('submitQBtn');
           if (sb) sb.disabled = false;
           const nb = document.getElementById('nextBtn');
-          if (nb && !isMock) nb.disabled = true; // must submit first in tutor
+          if (nb) nb.disabled = !isMock; // tutor answers must be graded before advancing
         };
       });
     }
   }
+
+  document.getElementById('exitExamBtn').onclick = exitExam;
 
   // submit question (tutor mode)
   const sq = document.getElementById('submitQBtn');
@@ -631,14 +648,16 @@ function renderExam() {
   };
 }
 
-function toggleSata(qId, opt, checked) {
+function toggleSata(qId, opt, checked, isMock) {
   if (!Array.isArray(appState.examAnswers[qId])) appState.examAnswers[qId] = [];
   const arr = appState.examAnswers[qId];
   if (checked) { if (!arr.includes(opt)) arr.push(opt); }
   else { const i = arr.indexOf(opt); if (i>=0) arr.splice(i,1); }
-  // enable submit
+  const hasAnswer = arr.length > 0;
   const sb = document.getElementById('submitQBtn');
-  if (sb) sb.disabled = !arr.length;
+  if (sb) sb.disabled = !hasAnswer;
+  const nb = document.getElementById('nextBtn');
+  if (nb) nb.disabled = isMock ? !hasAnswer : true;
 }
 
 async function submitSingleQuestion(q) {
@@ -676,13 +695,37 @@ async function submitMockExam() {
         score: res.score
       });
       appState.dashboardLoaded = false;
-      setView('review');
+      await loadMockReview();
     } else {
       showToast(res.error || 'Submit failed.');
       renderExam();
     }
   } catch (err) {
     showErrorState(err.message, submitMockExam);
+  }
+}
+
+async function loadMockReview() {
+  setLoading('Loading correct answers and rationales...');
+  try {
+    const results = {};
+    const questions = appState.activeExamData;
+    for (let i = 0; i < questions.length; i += 5) {
+      const batch = questions.slice(i, i + 5);
+      const graded = await Promise.all(batch.map(q =>
+        Api.gradeQuestion(q.q_id, appState.examAnswers[q.q_id] !== undefined ? appState.examAnswers[q.q_id] : null)
+      ));
+      graded.forEach((result, index) => {
+        if (!result || !result.success) {
+          throw new Error((result && result.error) || 'Unable to load exam review.');
+        }
+        results[batch[index].q_id] = result;
+      });
+    }
+    appState.submitted = results;
+    setView('review');
+  } catch (err) {
+    showErrorState(err.message, loadMockReview);
   }
 }
 
@@ -722,6 +765,48 @@ function renderReview() {
           <div class="score-label">${r.correct} of ${r.total} correct</div>
           <p style="margin-top:12px;color:var(--text-muted);">Session ID: ${escapeHtml(r.session_id)}</p>
         </div>
+        ${appState.activeExamData.map((q, i) => {
+          const g = appState.submitted[q.q_id];
+          const userAnswer = appState.examAnswers[q.q_id];
+          const correctAnswerText = g && Array.isArray(g.correct_answer)
+            ? g.correct_answer.join(', ')
+            : g ? g.correct_answer : '';
+          const resultTitle = userAnswer === undefined || userAnswer === null || (Array.isArray(userAnswer) && !userAnswer.length)
+            ? 'Unanswered'
+            : g && g.is_correct ? 'Correct' : 'Incorrect';
+          const correctOptions = new Set(g
+            ? (Array.isArray(g.correct_answer) ? g.correct_answer : [g.correct_answer]).map(String)
+            : []);
+          const selectedOptions = new Set(userAnswer === undefined || userAnswer === null
+            ? []
+            : (Array.isArray(userAnswer) ? userAnswer : [userAnswer]).map(String));
+          return `
+            <div class="question-card exam-review-question ${g && g.is_correct ? 'is-correct' : 'is-incorrect'}">
+              <div class="q-progress">Question ${i+1}</div>
+              <div class="q-category">${escapeHtml(q.category || q.exam_type)}</div>
+              <div class="q-text">${escapeHtml(q.question_text)}</div>
+              <div class="exam-review-status ${g && g.is_correct ? 'is-correct' : 'is-incorrect'}">${resultTitle}</div>
+              <div class="exam-review-options">
+                ${q.options.map((opt, optionIndex) => {
+                  const option = String(opt);
+                  const isCorrectOption = correctOptions.has(option);
+                  const isSelectedOption = selectedOptions.has(option);
+                  const optionClass = isCorrectOption ? 'is-correct' : (isSelectedOption ? 'is-incorrect' : '');
+                  const label = isCorrectOption ? 'Correct answer' : (isSelectedOption ? 'Your answer' : '');
+                  return `<div class="exam-review-option ${optionClass}">
+                    <span class="option-letter">${String.fromCharCode(65 + optionIndex)}</span>
+                    <span class="exam-review-option-text">${escapeHtml(option)}</span>
+                    ${label ? `<span class="exam-review-option-label">${label}</span>` : ''}
+                  </div>`;
+                }).join('')}
+              </div>
+              <div class="exam-review-rationale">
+                <div class="exam-review-correct-answer">Correct answer: <strong>${escapeHtml(correctAnswerText)}</strong></div>
+                <div class="exam-review-rationale-title">Rationale</div>
+                <div class="rationale-text">${escapeHtml(g ? g.rationale || '' : '')}</div>
+              </div>
+            </div>`;
+        }).join('')}
         <div style="text-align:center;margin-top:20px;">
           <button class="btn btn-primary" id="backDash2">Back to Dashboard</button>
         </div>
