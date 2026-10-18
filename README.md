@@ -19,6 +19,7 @@ A zero-cost, serverless nursing exam preparation platform.
    - Execute as: **Me**
    - Who has access: **Anyone**
 8. Copy the Web App URL.
+9. After backend code changes, open **Deploy → Manage deployments**, edit the web app deployment, choose **New version**, and deploy. Keep the same deployment URL in `frontend/js/api.js`. The dashboard requires a deployment that includes the `get_dashboard` action for GET or POST.
 
 ### 2. Frontend
 1. Open `frontend/js/api.js` and set `API_BASE` to your Web App URL (or use `setApiBase(url)` in the browser console).
@@ -31,8 +32,8 @@ A zero-cost, serverless nursing exam preparation platform.
 - `POST ?action=register` — `{email, password, target_exam}` → `{success, user_id}`
 - `GET  ?action=get_exam` — `?exam_type=&count=&category=` → `{questions:[...]}`
 - `POST ?action=grade_question` — `{q_id, user_answer}` → `{correct_answer, rationale, is_correct}`
-- `POST ?action=submit_exam` — `{user_id, mode, exam_type, answers}` → `{score, total, session_id}`
-- `GET  ?action=get_dashboard` — `?user_id=` → `{sessions, categoryStats, overall}`
+- `POST ?action=submit_exam` — `{user_id, mode, exam_type, answers}` → `{score, correct, total, session_id}`
+- `GET/POST ?action=get_dashboard` — `?user_id=` (or JSON `{action:"get_dashboard", user_id}`) → `{sessions:[{session_id, mode, score, correct, total, timestamp, exam_type}], categoryStats, overall}`; sessions are returned newest first. The frontend falls back to POST if the deployment does not recognize the GET action.
 - `GET  ?action=get_categories` — `?exam_type=` → `{categories:[...]}`
 
 ## Notes

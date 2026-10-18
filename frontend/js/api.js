@@ -1,6 +1,6 @@
 // ===== API Client =====
 // Configure your deployed Google Apps Script Web App URL here.
-const API_BASE = (localStorage.getItem('api_base') || '').trim() || 'https://script.google.com/macros/s/AKfycby3W9_z-EsC9resFNC08zp48qA_6Z7H1LEGhaRvHGkz-48z3tyzh45V-OgUNuyyd0Er/exec';
+const API_BASE = (localStorage.getItem('api_base') || '').trim() || 'https://script.google.com/macros/s/AKfycbyvRKw5u89pGm_2V32FMyDIEQ1p4cF808tvUwLhD1r7Gq_rwnz8-q_AzKDHN-zumAgi/exec';
 
 const Api = {
   async request(action, method, payload) {
@@ -30,8 +30,24 @@ const Api = {
   submitExam(userId, mode, answers, examType) {
     return this.request('submit_exam', 'POST', { user_id: userId, mode: mode, exam_type: examType || '', answers: answers });
   },
-  getDashboard(userId) {
-    return fetch(API_BASE + '?action=get_dashboard&user_id=' + encodeURIComponent(userId)).then(r => r.json());
+  async getDashboard(userId) {
+    const url = API_BASE + '?action=get_dashboard&user_id=' + encodeURIComponent(userId);
+    const readResponse = async (response) => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    };
+    const response = await fetch(url);
+    const result = await readResponse(response);
+    if (!result || result.error !== 'Unknown GET action: get_dashboard') return result;
+
+    const fallback = await this.request('get_dashboard', 'POST', { user_id: userId });
+    if (fallback && fallback.error === 'Unknown POST action: get_dashboard') {
+      return {
+        success: false,
+        error: 'Dashboard sessions are not supported by the deployed Apps Script. Update the Apps Script from backend/Code.gs and deploy a new web app version.'
+      };
+    }
+    return fallback;
   },
   getCategories(examType) {
     let url = API_BASE + '?action=get_categories';

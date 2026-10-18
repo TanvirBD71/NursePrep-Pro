@@ -15,6 +15,7 @@ const appState = {
   dashboard: null,
   dashboardLoading: false,
   dashboardLoaded: false,
+  dashboardError: '',
   history: []
 };
 
@@ -92,6 +93,7 @@ function logout() {
   appState.dashboard = null;
   appState.dashboardLoaded = false;
   appState.dashboardLoading = false;
+  appState.dashboardError = '';
   appState.history = [];
   localStorage.removeItem('np_user');
   setView('auth');
@@ -178,76 +180,39 @@ async function handleAuthSubmit(ev) {
   }
 }
 
-function normalizeSessions(rawSessions) {
-  if (!Array.isArray(rawSessions)) return [];
-  return rawSessions
-    .map(s => {
-      const rawScore = Number(s && s.score);
-      const score = Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : 0;
-      const rawTimestamp = s && s.timestamp;
-      let timestamp = null;
-      if (rawTimestamp !== null && rawTimestamp !== undefined && rawTimestamp !== '') {
-        try {
-          const date = new Date(rawTimestamp);
-          if (Number.isFinite(date.getTime())) timestamp = date.toISOString();
-        } catch (err) {
-          // Ignore values that cannot be parsed as dates.
-        }
-      }
-      return {
-        session_id: s && s.session_id ? s.session_id : null,
-        user_id: s && s.user_id ? s.user_id : null,
-        mode: s && s.mode ? s.mode : 'Practice',
-        score: score,
-        timestamp: timestamp,
-        exam_type: s && s.exam_type ? s.exam_type : (s && s.examType ? s.examType : ''),
-      };
-    })
-    .filter(s => s.session_id || s.timestamp || s.score !== 0)
-    .sort((a, b) => {
-      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      return bTime - aTime;
-    });
-}
-
 // ===== Dashboard data loading =====
 async function loadDashboardData() {
   if (!appState.currentUser) return;
   appState.dashboardLoading = true;
+  appState.dashboardError = '';
   renderDashboard();
   try {
     const res = await Api.getDashboard(appState.currentUser.user_id);
-    if (res && res.success) {
-      const sessions = normalizeSessions(res.sessions || []);
-      const overall = res.overall || {};
-      const totals = sessions.length ? sessions.map(s => Number(s.score) || 0) : [];
-      appState.dashboard = {
-        sessions: sessions,
-        categoryStats: Array.isArray(res.categoryStats) ? res.categoryStats : [],
-        overall: {
-          sessions: sessions.length,
-          avgScore: totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : 0,
-          bestScore: totals.length ? Math.max(...totals) : 0,
-          totalQuestions: Number(overall.totalQuestions) || 0,
-          overallAccuracy: Number(overall.overallAccuracy) || 0,
-          ...overall
-        }
-      };
-      appState.history = sessions.map(s => ({
-        mode: s.mode,
-        examType: s.exam_type || appState.currentUser.target_exam,
-        score: s.score,
-        timestamp: s.timestamp,
-        sessionId: s.session_id
-      }));
+    if (!res || !res.success) {
+      if (res && res.error === 'Unknown GET action: get_dashboard') {
+        throw new Error('The deployed Google Apps Script is out of date and does not support dashboard sessions. In Apps Script, open Deploy > Manage deployments, edit the web app deployment, select New version, and deploy it. Keep the deployment URL configured in frontend/js/api.js.');
+      }
+      throw new Error((res && res.error) || 'Unable to load session data.');
     }
+    appState.dashboard = {
+      sessions: Array.isArray(res.sessions) ? res.sessions : [],
+      categoryStats: Array.isArray(res.categoryStats) ? res.categoryStats : [],
+      overall: res.overall || {}
+    };
+    appState.history = appState.dashboard.sessions.map(s => ({
+      mode: s.mode,
+      examType: s.exam_type || appState.currentUser.target_exam,
+      score: Number(s.score) || 0,
+      timestamp: s.timestamp,
+      sessionId: s.session_id
+    }));
   } catch (err) {
-    // Silently ignore; backend may be an older deployment.
+    appState.dashboardError = err && err.message ? err.message : 'Unable to load session data.';
+  } finally {
+    appState.dashboardLoading = false;
+    appState.dashboardLoaded = true;
+    renderDashboard();
   }
-  appState.dashboardLoading = false;
-  appState.dashboardLoaded = true;
-  renderDashboard();
 }
 
 function catColor(acc) {
@@ -256,13 +221,19 @@ function catColor(acc) {
   return 'var(--error-red)';
 }
 
+function parseSessionDate(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 // ===== Dashboard =====
 function renderDashboard() {
   const u = appState.currentUser;
   const d = appState.dashboard || {};
   const overall = d.overall || {};
-  const sessions = normalizeSessions(d.sessions || []);
-  const catStats = Array.isArray(d.categoryStats) ? d.categoryStats : [];
+  const sessions = d.sessions || [];
+  const catStats = d.categoryStats || [];
   const loading = appState.dashboardLoading;
 
   if (!appState.dashboardLoaded && !loading) {
@@ -270,29 +241,34 @@ function renderDashboard() {
     setTimeout(loadDashboardData, 0);
   }
 
-  const totalScores = sessions.map(s => Number(s.score) || 0);
-  const sessionsCount = Number(overall.sessions) || sessions.length || appState.history.length;
-  const avg = Number(overall.avgScore) || (totalScores.length ? Math.round(totalScores.reduce((a,b)=>a+b,0)/totalScores.length) : avgScore());
-  const best = Number(overall.bestScore) || (totalScores.length ? Math.max(...totalScores) : (appState.history.length ? Math.max.apply(null, appState.history.map(h=>h.score)) : 0));
-  const totalQ = Number(overall.totalQuestions) || 0;
-  const overallAcc = Number(overall.overallAccuracy) || 0;
+  const sessionsCount = overall.sessions != null ? overall.sessions : appState.history.length;
+  const avg = overall.avgScore != null ? overall.avgScore : avgScore();
+  const best = overall.bestScore != null ? overall.bestScore : (appState.history.length ? Math.max.apply(null, appState.history.map(h=>h.score)) : 0);
+  const totalQ = overall.totalQuestions != null ? overall.totalQuestions : 0;
+  const overallAcc = overall.overallAccuracy != null ? overall.overallAccuracy : 0;
 
   // score trend bars (last 8 sessions, oldest->newest)
-  const trend = sessions.slice().sort((a, b) => {
-    const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-    const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-    return aTime - bTime;
-  }).slice(-8);
+  const orderedSessions = sessions
+    .map((session, index) => ({ session, index, date: parseSessionDate(session.timestamp) }))
+    .sort((a, b) => {
+      if (a.date && b.date) return b.date - a.date;
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return a.index - b.index;
+    });
+  const trend = orderedSessions.slice(0, 8).reverse();
   const maxScore = 100;
-  const barsHtml = trend.length ? trend.map(s => {
-    const score = Math.max(0, Math.min(100, Number(s.score) || 0));
+  const barsHtml = trend.length ? trend.map(({ session, date }) => {
+    const score = Math.min(maxScore, Math.max(0, Number(session.score) || 0));
     const h = Math.max(4, Math.round((score / maxScore) * 80));
     const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
-    const label = s.timestamp ? new Date(s.timestamp).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '—';
+    const sessionLabel = session.mode === 'mock' ? 'Mock Exam' : session.mode === 'tutor' ? 'Tutor Mode' : session.mode || 'Exam';
+    const dateLabel = date ? date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) : 'Date unavailable';
+    const tooltip = `${sessionLabel} · ${score}%${date ? ' · ' + date.toLocaleString() : ''}`;
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:28px;">
-      <div style="font-size:11px;font-weight:600;color:${color};">${score}</div>
-      <div style="width:100%;max-width:32px;height:${h}px;background:${color};border-radius:4px 4px 0 0;min-height:4px;"></div>
-      <div style="font-size:10px;color:var(--text-muted);">${label}</div>
+      <div title="${escapeHtml(tooltip)}" style="font-size:11px;font-weight:600;color:${color};">${score}%</div>
+      <div title="${escapeHtml(tooltip)}" style="width:100%;max-width:32px;height:${h}px;background:${color};border-radius:4px 4px 0 0;min-height:4px;"></div>
+      <div title="${escapeHtml(tooltip)}" style="font-size:10px;color:var(--text-muted);">${escapeHtml(dateLabel)}</div>
     </div>`;
   }).join('') : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
 
@@ -318,7 +294,12 @@ function renderDashboard() {
     <div class="card">
       <h1 style="font-size:22px;font-weight:700;margin-bottom:4px;">Hello, ${escapeHtml(u.email.split('@')[0])}</h1>
       <p style="color:var(--text-muted);margin-bottom:20px;">Target exam: <strong>${escapeHtml(u.target_exam)}</strong></p>
-      ${loading ? '<div class="loading-wrap"><div class="spinner"></div><p style="margin-top:12px;">Loading analytics...</p></div>' : `
+      ${loading ? '<div class="loading-wrap"><div class="spinner"></div><p style="margin-top:12px;">Loading analytics...</p></div>' : appState.dashboardError ? `
+      <div class="error-state">
+        <h3>Session data unavailable</h3>
+        <p style="color:var(--text-muted);margin-bottom:16px;">${escapeHtml(appState.dashboardError)}</p>
+        <button class="btn btn-primary" id="retryDashboardBtn">Retry</button>
+      </div>` : `
       <div class="dashboard-grid">
         <div class="stat-card">
           <div class="stat-label">Target Exam</div>
@@ -348,7 +329,7 @@ function renderDashboard() {
       <button class="btn btn-primary btn-block" id="startExamBtn" style="margin-top:8px;">Start New Exam / Practice</button>`}
     </div>
 
-    ${!loading ? `
+    ${!loading && !appState.dashboardError ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Score Trend</h2>
       <div style="display:flex;align-items:flex-end;gap:8px;padding:12px 0 4px;min-height:110px;border-bottom:1px solid var(--border-gray);">
@@ -367,21 +348,23 @@ function renderDashboard() {
     ${sessions.length ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Recent Sessions</h2>
-        ${sessions.slice(0,10).map(h => {
-          const score = Number(h.score) || 0;
-          const dateText = h.timestamp ? new Date(h.timestamp).toLocaleString() : 'No date';
-          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-gray);">
-            <div>
-              <div style="font-weight:600;">${escapeHtml(h.mode)} — ${escapeHtml(h.exam_type || u.target_exam)}</div>
-              <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(dateText)}</div>
-            </div>
-            <span style="font-weight:700;color:${score>=70?'var(--success-green)':'var(--error-red)'};">${score}%</span>
-          </div>`;
-        }).join('')}
-      </div>` : ''}` : ''}`;
+      ${orderedSessions.slice(0,10).map(({session: h, date}) => {
+        const sessionLabel = h.mode === 'mock' ? 'Mock Exam' : h.mode === 'tutor' ? 'Tutor Mode' : h.mode || 'Exam';
+        const score = Math.min(100, Math.max(0, Number(h.score) || 0));
+        return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-gray);">
+          <div>
+            <div style="font-weight:600;">${escapeHtml(sessionLabel)} — ${escapeHtml(h.exam_type || u.target_exam)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${date ? date.toLocaleString() : 'Date unavailable'}${Number(h.total) > 0 ? ` · ${Number(h.correct) || 0}/${Number(h.total)} correct` : ''}</div>
+          </div>
+          <span style="font-weight:700;color:${score>=70?'var(--success-green)':score>=50?'var(--warning-amber)':'var(--error-red)'};">${score}%</span>
+        </div>`}).join('')}
+    </div>` : ''}` : ''}`;
 
   const btn = document.getElementById('startExamBtn');
   if (btn) btn.onclick = () => setView('config');
+  const retryBtn = document.getElementById('retryDashboardBtn');
+  if (retryBtn) retryBtn.onclick = loadDashboardData;
 
   document.querySelectorAll('[data-practice]').forEach(b => {
     b.onclick = () => {

@@ -8,8 +8,8 @@
  *   POST ?action=register     {email, password, target_exam} -> {success, user_id}
  *   GET  ?action=get_exam     ?exam_type=&count=&category= -> {questions:[{q_id, question_text, options, is_ngn}]}
  *   POST ?action=grade_question {q_id, user_answer} -> {correct_answer, rationale, is_correct}
- *   POST ?action=submit_exam  {user_id, mode, exam_type, answers:[{q_id,user_answer}]} -> {score, total, session_id}
- *   GET  ?action=get_dashboard ?user_id= -> {sessions, categoryStats, overall}
+ *   POST ?action=submit_exam  {user_id, mode, exam_type, answers:[{q_id,user_answer}]} -> {score, correct, total, session_id}
+ *   GET/POST ?action=get_dashboard ?user_id= -> {sessions:[{session_id,mode,score,correct,total,timestamp,exam_type}], categoryStats, overall}
  *   GET  ?action=get_categories ?exam_type= -> {categories:[...]}
  *   GET  ?action=health       -> {status, time}
  */
@@ -105,6 +105,7 @@ function doPost(e) {
     case 'register':         return handleRegister(body);
     case 'grade_question':   return handleGradeQuestion(body);
     case 'submit_exam':      return handleSubmitExam(body);
+    case 'get_dashboard':    return handleGetDashboard(body);
     default:
       return corsResponse({ error: 'Unknown POST action: ' + action });
   }
@@ -246,7 +247,8 @@ function handleSubmitExam(body) {
   });
 
   const sessionId = uuid();
-  const score = answers.length ? Math.round((correctCount / answers.length) * 100) : 0;
+  const total = progressRows.length;
+  const score = total ? Math.round((correctCount / total) * 100) : 0;
   const sessions = getSheet('Sessions');
   sessions.appendRow([sessionId, userId, mode, score, new Date().toISOString(), examType]);
 
@@ -261,7 +263,7 @@ function handleSubmitExam(body) {
     session_id: sessionId,
     score: score,
     correct: correctCount,
-    total: answers.length
+    total: total
   });
 }
 
@@ -298,6 +300,7 @@ function handleGetDashboard(params) {
 
   const pData = progressSheet.getDataRange().getValues();
   const catStats = {};
+  const sessionStats = {};
   let totalQ = 0, totalCorrect = 0;
   for (let i = 1; i < pData.length; i++) {
     const sid = pData[i][1];
@@ -308,10 +311,22 @@ function handleGetDashboard(params) {
     const cat = q ? q.category : 'Unknown';
     if (!catStats[cat]) catStats[cat] = { total: 0, correct: 0 };
     catStats[cat].total++;
+    if (!sessionStats[sid]) sessionStats[sid] = { total: 0, correct: 0 };
+    sessionStats[sid].total++;
     if (isCorrect) catStats[cat].correct++;
+    if (isCorrect) sessionStats[sid].correct++;
     totalQ++;
     if (isCorrect) totalCorrect++;
   }
+
+  sessions.forEach(function(session) {
+    const stats = sessionStats[session.session_id];
+    session.correct = stats ? stats.correct : 0;
+    session.total = stats ? stats.total : 0;
+    if (stats && stats.total) {
+      session.score = Math.round(stats.correct / stats.total * 100);
+    }
+  });
 
   const categoryStats = Object.keys(catStats).map(function(c) {
     return {
