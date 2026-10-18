@@ -23,6 +23,7 @@ A zero-cost, serverless nursing exam preparation platform.
 ### 2. Frontend
 1. Open `frontend/js/api.js` and set `API_BASE` to your Web App URL (or use `setApiBase(url)` in the browser console).
 2. Serve `frontend/` via GitHub Pages, Vercel, or any static host.
+   - Vercel: import the repo and set the **Root Directory** to `frontend` (or keep the repo root — `vercel.json` already points `outputDirectory` to `frontend`).
 3. For local testing, open `frontend/index.html` directly (some browsers block fetch to GAS from file://; use a local server).
 
 ## API Endpoints
