@@ -1,6 +1,6 @@
 // ===== API Client =====
 // Configure your deployed Google Apps Script Web App URL here.
-const API_BASE = (localStorage.getItem('api_base') || '').trim() || 'https://script.google.com/macros/s/AKfycbyIixhct-yZ02S4_0zbfr41d6XpE89g2R4umsBg7Xc0naChLNNCmaWakiLXiEXq6uYj/exec';
+const API_BASE = (localStorage.getItem('api_base') || '').trim() || 'https://script.google.com/macros/s/AKfycbzp_90LY03AZyiP-O-OxceAz9ap_Sf-v4o5R_47vAY8xvSq6DbvZr3Ov5UlkeyriC_m/exec';
 
 const Api = {
   async request(action, method, payload) {

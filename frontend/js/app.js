@@ -1,4 +1,11 @@
 // ===== App State =====
+const EXAM_OPTIONS = [
+  'NCLEX-RN',
+  'Prometric',
+  'Licence Exam Preparation',
+  'IBN SINA Trust Nursing Exam'
+];
+
 const appState = {
   currentUser: null,
   currentView: 'auth',
@@ -228,8 +235,7 @@ function renderAuth() {
           <div class="form-group">
             <label class="form-label" for="targetExam">Target exam *</label>
             <select class="form-select" id="targetExam" required>
-              <option value="NCLEX-RN">NCLEX-RN</option>
-              <option value="Prometric">Prometric (Middle East)</option>
+              ${EXAM_OPTIONS.map(exam => `<option value="${exam}">${exam}</option>`).join('')}
             </select>
           </div>` : ''}
           ${authMode === 'register' ? '<p class="profile-privacy-note">Remember your password: you’ll need it to view or edit your profile information later.</p>' : ''}
@@ -610,8 +616,7 @@ function renderProfile() {
             <div class="form-group">
               <label class="form-label" for="targetExamSetting">Target exam *</label>
               <select class="form-select" id="targetExamSetting" name="target_exam" required>
-                <option value="NCLEX-RN" ${appState.currentUser.target_exam === 'NCLEX-RN' ? 'selected' : ''}>NCLEX-RN</option>
-                <option value="Prometric" ${appState.currentUser.target_exam === 'Prometric' ? 'selected' : ''}>Prometric (Middle East)</option>
+                ${EXAM_OPTIONS.map(exam => `<option value="${exam}" ${appState.currentUser.target_exam === exam ? 'selected' : ''}>${exam}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -845,10 +850,10 @@ function renderConfig() {
       <div class="config-row">
         <label class="form-label">Exam Type</label>
         <div class="radio-group" id="examTypeGroup">
-          ${['NCLEX-RN','Prometric'].map(t => `
+          ${EXAM_OPTIONS.map(t => `
             <label class="radio-option ${cfg.examType===t?'selected':''}" data-val="${t}">
               <input type="radio" name="examType" value="${t}" ${cfg.examType===t?'checked':''} />
-              <span>${t === 'NCLEX-RN' ? 'NCLEX-RN' : 'Prometric (Middle East)'}</span>
+              <span>${t}</span>
             </label>`).join('')}
         </div>
       </div>
@@ -1005,53 +1010,104 @@ function formatTime(sec) {
 }
 
 // ===== Active Exam =====
+function normalizeOptionValue(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value).trim();
+  if (!text) return '';
+  return text
+    .replace(/^[A-Za-z]\s*[\)\.\:\-]\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeSelectionSet(value) {
+  const raw = Array.isArray(value) ? value : [value];
+  const normalized = raw
+    .flatMap(item => {
+      if (item === null || item === undefined || item === '') return [];
+      if (typeof item === 'string') {
+        const cleaned = item.trim();
+        if (!cleaned) return [];
+        const parts = cleaned.split(/[\n,;|]/).map(p => p.trim()).filter(Boolean);
+        return parts.length > 1 ? parts : [cleaned];
+      }
+      return [item];
+    })
+    .map(normalizeOptionValue)
+    .filter(Boolean);
+
+  return new Set(normalized);
+}
+
+function questionTypeOf(q) {
+  if (!q) return 'best_answer';
+  const rawType = String(q.question_type || '').trim().toLowerCase();
+  if (rawType === 'true_false_matrix' || rawType === 'true_false' || rawType === 'matrix' || rawType === 'multi_select' || rawType === 'check_all_that_apply') return 'true_false_matrix';
+  if (rawType === 'scenario_multi_select') return 'scenario_multi_select';
+  if (rawType === 'scenario_best_answer') return 'scenario_best_answer';
+  const answerText = q.correct_answer == null ? '' : String(q.correct_answer);
+  const answerIsMatrix =
+    (Array.isArray(q.correct_answer) && q.options && q.options.length >= 5) ||
+    (typeof q.correct_answer === 'string' && q.options && q.options.length >= 5 && /[;,|\n]/.test(answerText));
+  if (answerIsMatrix) return 'true_false_matrix';
+  if (q.is_ngn) return 'scenario_best_answer';
+  return 'best_answer';
+}
+
 function renderExam() {
   const q = appState.activeExamData[appState.currentIndex];
   if (!q) { setView('review'); return; }
   const isMock = appState.examMode === 'mock';
-  const sata = !!q.is_ngn;
+  const questionType = questionTypeOf(q);
+  const isMatrix = questionType === 'true_false_matrix';
+  const isMulti = questionType === 'scenario_multi_select' || questionType === 'multi_select';
   const total = appState.activeExamData.length;
   const idx = appState.currentIndex;
   const userAns = appState.examAnswers[q.q_id];
   const graded = appState.submitted[q.q_id];
-  const hasAnswer = (Array.isArray(userAns) ? userAns.length > 0 : userAns !== undefined && userAns !== null && userAns !== '');
+  const hasAnswer = Array.isArray(userAns) ? userAns.length > 0 : userAns !== undefined && userAns !== null && userAns !== '';
   const nextDisabled = isMock ? !hasAnswer : !graded;
 
   let optionsHtml = '';
-  if (sata) {
-    // checkboxes
+  const options = Array.isArray(q.options) ? q.options : [];
+  if (isMatrix || isMulti) {
     const selected = Array.isArray(userAns) ? userAns : [];
-    optionsHtml = `<p class="sata-hint">Select all that apply.</p><div class="options-list">` +
-      q.options.map((opt, i) => {
+    const selectedSet = new Set(selected.map(normalizeOptionValue).filter(Boolean));
+    optionsHtml = `<p class="sata-hint">${isMatrix ? 'Select each option correctly.' : 'Select all that apply.'}</p><div class="options-list">` +
+      options.map((opt, i) => {
+        const label = typeof opt === 'string' ? opt : (opt && (opt.label || opt.text || opt.option || opt.value)) || '';
         const letter = String.fromCharCode(65 + i);
-        const isChecked = selected.includes(opt);
+        const normalizedLabel = normalizeOptionValue(label);
+        const isChecked = selectedSet.has(normalizedLabel);
         let cls = 'option-btn';
         if (graded) {
-          const correctArr = Array.isArray(graded.correct_answer) ? graded.correct_answer : [graded.correct_answer];
-          if (correctArr.includes(opt)) cls += ' correct';
+          const correctSet = normalizeSelectionSet(graded.correct_answer);
+          if (correctSet.has(normalizedLabel)) cls += ' correct';
           else if (isChecked) cls += ' incorrect';
         } else if (isChecked) {
           cls += ' selected';
         }
-        return `<label class="${cls}" data-opt="${escapeHtml(opt)}">
+        return `<label class="${cls}" data-opt="${escapeHtml(label)}">
           <input type="checkbox" ${isChecked?'checked':''} ${graded?'disabled':''} style="width:18px;height:18px;accent-color:var(--primary-teal);" />
           <span class="option-letter">${letter}</span>
-          <span>${escapeHtml(opt)}</span>
+          <span>${escapeHtml(label)}</span>
         </label>`;
       }).join('') + `</div>`;
   } else {
     optionsHtml = `<div class="options-list">` +
-      q.options.map((opt, i) => {
+      options.map((opt, i) => {
+        const label = typeof opt === 'string' ? opt : (opt && (opt.label || opt.text || opt.option || opt.value)) || '';
         const letter = String.fromCharCode(65 + i);
         let cls = 'option-btn';
         if (graded) {
-          if (opt === graded.correct_answer) cls += ' correct';
-          else if (opt === userAns) cls += ' incorrect';
-        } else if (opt === userAns) {
+          if (label === graded.correct_answer) cls += ' correct';
+          else if (label === userAns) cls += ' incorrect';
+        } else if (label === userAns) {
           cls += ' selected';
         }
         const disabled = graded ? 'disabled' : '';
-        return `<button class="${cls}" data-opt="${escapeHtml(opt)}" ${disabled} role="radio" aria-checked="${opt === userAns}">${''}<span class="option-letter">${letter}</span><span>${escapeHtml(opt)}</span></button>`;
+        return `<button class="${cls}" data-opt="${escapeHtml(label)}" ${disabled} role="radio" aria-checked="${label === userAns}"><span class="option-letter">${letter}</span><span>${escapeHtml(label)}</span></button>`;
       }).join('') + `</div>`;
   }
 
@@ -1062,7 +1118,7 @@ function renderExam() {
       <div class="rationale-box ${rc}">
         <div class="rationale-title">${graded.is_correct ? 'Correct' : 'Incorrect'}</div>
         <div class="rationale-text">${escapeHtml(graded.rationale || '')}</div>
-        <div style="margin-top:8px;font-size:13px;color:var(--text-muted);">Correct answer: <strong>${escapeHtml(Array.isArray(graded.correct_answer)?graded.correct_answer.join(', '):graded.correct_answer)}</strong></div>
+        <div style="margin-top:8px;font-size:13px;color:var(--text-muted);">Correct answer: <strong>${escapeHtml(Array.isArray(graded.correct_answer) ? graded.correct_answer.join(', ') : graded.correct_answer || '')}</strong></div>
       </div>`;
   }
 
@@ -1088,17 +1144,17 @@ function renderExam() {
       <div style="display:flex;justify-content:space-between;margin-top:24px;gap:12px;">
         <button class="btn btn-secondary" id="prevBtn" ${idx===0?'disabled':''}>Previous</button>
         <div style="display:flex;gap:12px;">
-          ${isMock ? '' : (graded ? '' : `<button class="btn btn-primary" id="submitQBtn" ${userAns===undefined||userAns===null||(Array.isArray(userAns)&&!userAns.length)?'disabled':''}>Submit Answer</button>`)}
+          ${isMock ? '' : (graded ? '' : `<button class="btn btn-primary" id="submitQBtn" ${!hasAnswer ? 'disabled' : ''}>Submit Answer</button>`) }
           ${idx < total-1 ? `<button class="btn btn-secondary" id="nextBtn" ${nextDisabled?'disabled':''}>Next</button>` : `<button class="btn btn-success" id="finishBtn">${isMock?'Finish Exam':'Finish'}</button>`}
         </div>
       </div>
     </div>`;
 
-  // wire options
   if (!graded) {
-    if (sata) {
+    if (isMatrix || isMulti) {
       document.querySelectorAll('.option-btn').forEach(btn => {
         const cb = btn.querySelector('input');
+        if (!cb) return;
         cb.onchange = () => {
           toggleSata(q.q_id, btn.dataset.opt, cb.checked, isMock);
           btn.classList.toggle('selected', cb.checked);
@@ -1108,12 +1164,12 @@ function renderExam() {
       document.querySelectorAll('.option-btn').forEach(btn => {
         btn.onclick = () => {
           appState.examAnswers[q.q_id] = btn.dataset.opt;
-          document.querySelectorAll('.option-btn').forEach(b=>b.classList.remove('selected'));
+          document.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
           btn.classList.add('selected');
           const sb = document.getElementById('submitQBtn');
           if (sb) sb.disabled = false;
           const nb = document.getElementById('nextBtn');
-          if (nb) nb.disabled = !isMock; // tutor answers must be graded before advancing
+          if (nb) nb.disabled = !isMock;
         };
       });
     }
@@ -1121,11 +1177,9 @@ function renderExam() {
 
   document.getElementById('exitExamBtn').onclick = exitExam;
 
-  // submit question (tutor mode)
   const sq = document.getElementById('submitQBtn');
   if (sq) sq.onclick = () => submitSingleQuestion(q);
 
-  // navigation
   const prev = document.getElementById('prevBtn');
   if (prev) prev.onclick = () => { appState.currentIndex = Math.max(0, appState.currentIndex-1); renderExam(); };
   const next = document.getElementById('nextBtn');
@@ -1141,7 +1195,7 @@ function toggleSata(qId, opt, checked, isMock) {
   if (!Array.isArray(appState.examAnswers[qId])) appState.examAnswers[qId] = [];
   const arr = appState.examAnswers[qId];
   if (checked) { if (!arr.includes(opt)) arr.push(opt); }
-  else { const i = arr.indexOf(opt); if (i>=0) arr.splice(i,1); }
+  else { const i = arr.indexOf(opt); if (i >= 0) arr.splice(i, 1); }
   const hasAnswer = arr.length > 0;
   const sb = document.getElementById('submitQBtn');
   if (sb) sb.disabled = !hasAnswer;
