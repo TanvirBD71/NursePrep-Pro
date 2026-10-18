@@ -178,6 +178,29 @@ async function handleAuthSubmit(ev) {
   }
 }
 
+function normalizeSessions(rawSessions) {
+  if (!Array.isArray(rawSessions)) return [];
+  return rawSessions
+    .map(s => {
+      const score = Number(s && s.score);
+      const timestamp = s && s.timestamp ? new Date(s.timestamp).toString() === 'Invalid Date' ? null : s.timestamp : null;
+      return {
+        session_id: s && s.session_id ? s.session_id : null,
+        user_id: s && s.user_id ? s.user_id : null,
+        mode: s && s.mode ? s.mode : 'Practice',
+        score: Number.isFinite(score) ? score : 0,
+        timestamp: timestamp,
+        exam_type: s && s.exam_type ? s.exam_type : (s && s.examType ? s.examType : ''),
+      };
+    })
+    .filter(s => s.session_id || s.timestamp || s.score !== 0)
+    .sort((a, b) => {
+      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return bTime - aTime;
+    });
+}
+
 // ===== Dashboard data loading =====
 async function loadDashboardData() {
   if (!appState.currentUser) return;
@@ -186,12 +209,22 @@ async function loadDashboardData() {
   try {
     const res = await Api.getDashboard(appState.currentUser.user_id);
     if (res && res.success) {
+      const sessions = normalizeSessions(res.sessions || []);
+      const overall = res.overall || {};
+      const totals = sessions.length ? sessions.map(s => Number(s.score) || 0) : [];
       appState.dashboard = {
-        sessions: res.sessions || [],
-        categoryStats: res.categoryStats || [],
-        overall: res.overall || {}
+        sessions: sessions,
+        categoryStats: Array.isArray(res.categoryStats) ? res.categoryStats : [],
+        overall: {
+          sessions: sessions.length,
+          avgScore: totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : 0,
+          bestScore: totals.length ? Math.max(...totals) : 0,
+          totalQuestions: Number(overall.totalQuestions) || 0,
+          overallAccuracy: Number(overall.overallAccuracy) || 0,
+          ...overall
+        }
       };
-      appState.history = (res.sessions || []).map(s => ({
+      appState.history = sessions.map(s => ({
         mode: s.mode,
         examType: s.exam_type || appState.currentUser.target_exam,
         score: s.score,
@@ -218,8 +251,8 @@ function renderDashboard() {
   const u = appState.currentUser;
   const d = appState.dashboard || {};
   const overall = d.overall || {};
-  const sessions = d.sessions || [];
-  const catStats = d.categoryStats || [];
+  const sessions = normalizeSessions(d.sessions || []);
+  const catStats = Array.isArray(d.categoryStats) ? d.categoryStats : [];
   const loading = appState.dashboardLoading;
 
   if (!appState.dashboardLoaded && !loading) {
@@ -227,22 +260,29 @@ function renderDashboard() {
     setTimeout(loadDashboardData, 0);
   }
 
-  const sessionsCount = overall.sessions != null ? overall.sessions : appState.history.length;
-  const avg = overall.avgScore != null ? overall.avgScore : avgScore();
-  const best = overall.bestScore != null ? overall.bestScore : (appState.history.length ? Math.max.apply(null, appState.history.map(h=>h.score)) : 0);
-  const totalQ = overall.totalQuestions != null ? overall.totalQuestions : 0;
-  const overallAcc = overall.overallAccuracy != null ? overall.overallAccuracy : 0;
+  const totalScores = sessions.map(s => Number(s.score) || 0);
+  const sessionsCount = Number(overall.sessions) || sessions.length || appState.history.length;
+  const avg = Number(overall.avgScore) || (totalScores.length ? Math.round(totalScores.reduce((a,b)=>a+b,0)/totalScores.length) : avgScore());
+  const best = Number(overall.bestScore) || (totalScores.length ? Math.max(...totalScores) : (appState.history.length ? Math.max.apply(null, appState.history.map(h=>h.score)) : 0));
+  const totalQ = Number(overall.totalQuestions) || 0;
+  const overallAcc = Number(overall.overallAccuracy) || 0;
 
   // score trend bars (last 8 sessions, oldest->newest)
-  const trend = sessions.slice().reverse().slice(-8);
+  const trend = sessions.slice().sort((a, b) => {
+    const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return aTime - bTime;
+  }).slice(-8);
   const maxScore = 100;
   const barsHtml = trend.length ? trend.map(s => {
-    const h = Math.max(4, Math.round((s.score / maxScore) * 80));
-    const color = s.score >= 70 ? 'var(--success-green)' : (s.score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
+    const score = Math.max(0, Math.min(100, Number(s.score) || 0));
+    const h = Math.max(4, Math.round((score / maxScore) * 80));
+    const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
+    const label = s.timestamp ? new Date(s.timestamp).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '—';
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:28px;">
-      <div style="font-size:11px;font-weight:600;color:${color};">${s.score}</div>
+      <div style="font-size:11px;font-weight:600;color:${color};">${score}</div>
       <div style="width:100%;max-width:32px;height:${h}px;background:${color};border-radius:4px 4px 0 0;min-height:4px;"></div>
-      <div style="font-size:10px;color:var(--text-muted);">${new Date(s.timestamp).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div>
+      <div style="font-size:10px;color:var(--text-muted);">${label}</div>
     </div>`;
   }).join('') : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
 
@@ -317,15 +357,18 @@ function renderDashboard() {
     ${sessions.length ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Recent Sessions</h2>
-      ${sessions.slice(0,10).map(h => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-gray);">
-          <div>
-            <div style="font-weight:600;">${escapeHtml(h.mode)} — ${escapeHtml(h.exam_type || u.target_exam)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${new Date(h.timestamp).toLocaleString()}</div>
-          </div>
-          <span style="font-weight:700;color:${h.score>=70?'var(--success-green)':'var(--error-red)'};">${h.score}%</span>
-        </div>`).join('')}
-    </div>` : ''}` : ''}`;
+        ${sessions.slice(0,10).map(h => {
+          const score = Number(h.score) || 0;
+          const dateText = h.timestamp ? new Date(h.timestamp).toLocaleString() : 'No date';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-gray);">
+            <div>
+              <div style="font-weight:600;">${escapeHtml(h.mode)} — ${escapeHtml(h.exam_type || u.target_exam)}</div>
+              <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(dateText)}</div>
+            </div>
+            <span style="font-weight:700;color:${score>=70?'var(--success-green)':'var(--error-red)'};">${score}%</span>
+          </div>`;
+        }).join('')}
+      </div>` : ''}` : ''}`;
 
   const btn = document.getElementById('startExamBtn');
   if (btn) btn.onclick = () => setView('config');
