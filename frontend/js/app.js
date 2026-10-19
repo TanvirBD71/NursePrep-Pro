@@ -23,6 +23,7 @@ const appState = {
   dashboardLoading: false,
   dashboardLoaded: false,
   dashboardError: '',
+  categoryStrengthExpanded: false,
   accountProfile: null,
   profileLoading: false,
   accountCurrentPassword: '',
@@ -637,7 +638,7 @@ function renderDashboard() {
   const totalQ = overall.totalQuestions != null ? overall.totalQuestions : 0;
   const overallAcc = overall.overallAccuracy != null ? overall.overallAccuracy : 0;
 
-  // score trend bars (last 10 sessions, oldest->newest)
+  // Score trend (last 10 sessions, oldest to newest)
   const orderedSessions = sessions
     .map((session, index) => ({ session, index, date: parseSessionDate(session.timestamp) }))
     .sort((a, b) => {
@@ -648,22 +649,54 @@ function renderDashboard() {
     });
   const trend = orderedSessions.slice(-10).reverse();
   const maxScore = 100;
-  const barsHtml = trend.length ? trend.map(({ session, date }) => {
-    const score = Math.min(maxScore, Math.max(0, Number(session.score) || 0));
-    const h = Math.max(8, Math.round((score / maxScore) * 86));
-    const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
-    const sessionLabel = session.mode === 'mock' ? 'Mock' : session.mode === 'tutor' ? 'Tutor' : session.mode || 'Exam';
-    const dateLabel = date ? date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) : 'Date';
-    const tooltip = `${sessionLabel} · ${score}%${date ? ' · ' + date.toLocaleString() : ''}`;
-    return `<div class="trend-bar" title="${escapeHtml(tooltip)}">
-      <div class="trend-score" style="color:${color};">${score}%</div>
-      <div class="trend-fill" style="height:${h}px;background:${color};"></div>
-      <div class="trend-date">${escapeHtml(dateLabel)}</div>
-    </div>`;
-  }).join('') : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
+  const trendChart = trend.length ? (() => {
+    const chartWidth = 600;
+    const chartHeight = 240;
+    const left = 42;
+    const right = 16;
+    const top = 16;
+    const bottom = 198;
+    const plotWidth = chartWidth - left - right;
+    const plotHeight = bottom - top;
+    const points = trend.map(({ session, date }, index) => {
+      const score = Math.min(maxScore, Math.max(0, Number(session.score) || 0));
+      const x = trend.length === 1 ? left + plotWidth / 2 : left + index * plotWidth / (trend.length - 1);
+      const y = bottom - score / maxScore * plotHeight;
+      const dateLabel = date ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'N/A';
+      const sessionLabel = session.mode === 'mock' ? 'Mock' : session.mode === 'tutor' ? 'Tutor' : session.mode || 'Exam';
+      const tooltip = `${sessionLabel} · ${score}%${date ? ' · ' + date.toLocaleString() : ''}`;
+      const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
+      return { x, y, score, dateLabel, tooltip, color };
+    });
+    const gridLines = [0, 25, 50, 75, 100].map(value => {
+      const y = bottom - value / maxScore * plotHeight;
+      return `<g class="trend-gridline">
+        <line x1="${left}" y1="${y}" x2="${chartWidth - right}" y2="${y}"></line>
+        <text x="${left - 8}" y="${y + 3}" text-anchor="end">${value}</text>
+      </g>`;
+    }).join('');
+    const columns = points.map(point => {
+      const height = bottom - point.y;
+      return `<g>
+        <title>${escapeHtml(point.tooltip)}</title>
+        <rect class="trend-column" x="${point.x - 12}" y="${point.y}" width="24" height="${height}" rx="4" style="--trend-column-color:${point.color};"></rect>
+        <text class="trend-point-label" x="${point.x}" y="${Math.max(top + 10, point.y - 8)}" text-anchor="middle">${point.score}%</text>
+        <text class="trend-date-label" x="${point.x}" y="${bottom + 20}" text-anchor="middle">${escapeHtml(point.dateLabel)}</text>
+      </g>`;
+    }).join('');
+    const linePoints = points.map(point => `${point.x},${point.y}`).join(' ');
+    const markers = points.map(point => `<circle class="trend-line-marker" cx="${point.x}" cy="${point.y}" r="4"></circle>`).join('');
+    return `<svg class="score-trend-svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Recent exam scores shown as columns connected by a trend line">
+      ${gridLines}
+      ${columns}
+      <polyline class="trend-line" points="${linePoints}"></polyline>
+      ${markers}
+    </svg>`;
+  })() : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
 
   // category strength cards
-  const catRows = catStats.length ? `<div class="category-strength-grid">${catStats.map(c => {
+  const visibleCatStats = appState.categoryStrengthExpanded ? catStats : catStats.slice(0, 2);
+  const catRows = catStats.length ? `<div class="category-strength-grid">${visibleCatStats.map(c => {
     const accuracy = Number(c.accuracy) || 0;
     const progress = Math.min(100, Math.max(0, accuracy));
     const color = catColor(accuracy);
@@ -678,7 +711,11 @@ function renderDashboard() {
         <p class="category-strength-count">${c.correct}/${c.total} correct</p>
         <button class="btn btn-primary category-strength-practice" data-cat="${escapeHtml(c.category)}" data-practice type="button">Practice</button>
       </article>`;
-  }).join('')}</div>` : (loading ? '<p style="color:var(--text-muted);font-size:13px;">Loading...</p>' : '<p style="color:var(--text-muted);font-size:13px;">No category data yet.</p>');
+  }).join('')}</div>${catStats.length > 2 ? `
+    <button class="category-strength-toggle" id="toggleCategoryStrength" type="button" aria-expanded="${appState.categoryStrengthExpanded}">
+      ${appState.categoryStrengthExpanded ? 'Show fewer categories' : `Show all ${catStats.length} categories`}
+      <span class="category-strength-toggle-icon" aria-hidden="true">${appState.categoryStrengthExpanded ? '↑' : '↓'}</span>
+    </button>` : ''}` : (loading ? '<p style="color:var(--text-muted);font-size:13px;">Loading...</p>' : '<p style="color:var(--text-muted);font-size:13px;">No category data yet.</p>');
 
   // weak categories (accuracy < 70 with at least 3 attempts)
   const weak = catStats.filter(c => c.total >= 3 && c.accuracy < 70);
@@ -766,8 +803,8 @@ function renderDashboard() {
                ${pieSegments.map(segment => `<div class="legend-item"><span class="legend-dot ${segment.color}"></span> ${segment.label} ${segment.value}%</div>`).join('')}
              </div>
            </div>
-           <div class="score-trend-graph" aria-label="Scores across recent sessions">
-             ${barsHtml}
+           <div class="score-trend-graph">
+             ${trendChart}
            </div>
          `;
        })() : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>'}
@@ -824,6 +861,13 @@ function renderDashboard() {
   if (btn) btn.onclick = () => setView('config');
   const retryBtn = document.getElementById('retryDashboardBtn');
   if (retryBtn) retryBtn.onclick = loadDashboardData;
+  const categoryToggle = document.getElementById('toggleCategoryStrength');
+  if (categoryToggle) {
+    categoryToggle.onclick = () => {
+      appState.categoryStrengthExpanded = !appState.categoryStrengthExpanded;
+      renderDashboard();
+    };
+  }
 
   document.querySelectorAll('[data-practice]').forEach(b => {
     b.onclick = () => {
