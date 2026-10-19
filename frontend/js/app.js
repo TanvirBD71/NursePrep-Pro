@@ -34,6 +34,147 @@ const main = document.getElementById('main');
 const headerRight = document.getElementById('headerRight');
 const toast = document.getElementById('toast');
 
+function closeProfileMenu(returnFocus) {
+  const profileBtn = document.getElementById('profileBtn');
+  const profileMenu = document.getElementById('profileMenu');
+  if (!profileBtn || !profileMenu) return;
+  profileMenu.hidden = true;
+  profileBtn.setAttribute('aria-expanded', 'false');
+  if (returnFocus) profileBtn.focus();
+}
+
+document.addEventListener('click', event => {
+  if (!headerRight.contains(event.target)) closeProfileMenu(false);
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeProfileMenu(true);
+});
+
+// ===== Landing background =====
+function setLandingParticleEffect(enabled) {
+  const canvas = document.getElementById('particleCanvas');
+  if (!canvas) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) enabled = false;
+
+  if (!enabled) {
+    canvas.classList.remove('is-active');
+    if (canvas._particleEffect && canvas._particleEffect.running) {
+      canvas._particleEffect.running = false;
+      canvas._particleEffect.stop();
+    }
+    return;
+  }
+
+  const context = canvas.getContext('2d');
+  if (!context) return;
+
+  if (!canvas._particleEffect) {
+    const pointer = { x: -1000, y: -1000 };
+    const particles = [];
+    let animationFrame = 0;
+    let width = 0;
+    let height = 0;
+    const onPointerMove = event => {
+      pointer.x = event.clientX;
+      pointer.y = event.clientY;
+    };
+    const onPointerLeave = () => {
+      pointer.x = -1000;
+      pointer.y = -1000;
+    };
+
+    const resize = () => {
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.round(width * pixelRatio);
+      canvas.height = Math.round(height * pixelRatio);
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      const count = Math.min(100, Math.max(30, Math.floor(width * height / 12000)));
+      particles.length = 0;
+      for (let i = 0; i < count; i += 1) {
+        particles.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.35,
+          vy: (Math.random() - 0.5) * 0.35,
+          radius: Math.random() * 1.6 + 1
+        });
+      }
+    };
+
+    const draw = () => {
+      context.clearRect(0, 0, width, height);
+      particles.forEach((particle, index) => {
+        const dx = pointer.x - particle.x;
+        const dy = pointer.y - particle.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < 150 && distance > 0) {
+          const influence = (1 - distance / 150) * 0.012 / distance;
+          particle.vx += dx * influence;
+          particle.vy += dy * influence;
+        }
+
+        particle.vx *= 0.985;
+        particle.vy *= 0.985;
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        if (particle.x < -8) particle.x = width + 8;
+        if (particle.x > width + 8) particle.x = -8;
+        if (particle.y < -8) particle.y = height + 8;
+        if (particle.y > height + 8) particle.y = -8;
+
+        context.beginPath();
+        context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(0, 106, 78, 0.38)';
+        context.fill();
+
+        for (let otherIndex = index + 1; otherIndex < particles.length; otherIndex += 1) {
+          const other = particles[otherIndex];
+          const lineX = particle.x - other.x;
+          const lineY = particle.y - other.y;
+          const lineDistance = Math.hypot(lineX, lineY);
+          if (lineDistance < 115) {
+            context.beginPath();
+            context.moveTo(particle.x, particle.y);
+            context.lineTo(other.x, other.y);
+            context.strokeStyle = `rgba(0, 106, 78, ${(1 - lineDistance / 115) * 0.12})`;
+            context.stroke();
+          }
+        }
+      });
+      animationFrame = window.requestAnimationFrame(draw);
+    };
+
+    canvas._particleEffect = {
+      start() {
+        resize();
+        window.addEventListener('resize', resize);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerleave', onPointerLeave);
+        animationFrame = window.requestAnimationFrame(draw);
+      },
+      stop() {
+        window.cancelAnimationFrame(animationFrame);
+        window.removeEventListener('resize', resize);
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerleave', onPointerLeave);
+        context.clearRect(0, 0, width, height);
+      }
+    };
+  }
+
+  canvas.classList.toggle('is-active', enabled);
+  if (enabled && !canvas._particleEffect.running) {
+    canvas._particleEffect.running = true;
+    canvas._particleEffect.start();
+  } else if (!enabled && canvas._particleEffect.running) {
+    canvas._particleEffect.running = false;
+    canvas._particleEffect.stop();
+  }
+}
+
 window.addEventListener('beforeunload', (event) => {
   if (appState.currentView !== 'exam') return;
   event.preventDefault();
@@ -140,6 +281,7 @@ function setView(view) {
 }
 
 function render() {
+  setLandingParticleEffect(appState.currentView === 'landing');
   updateHeader();
   ensureFloatingControls();
   switch (appState.currentView) {
@@ -195,15 +337,30 @@ function refreshFloatingTimer() {
 function updateHeader() {
   if (appState.currentUser) {
     const profileBtnMarkup = appState.currentView !== 'exam'
-      ? '<button class="icon-btn" id="profileBtn" aria-label="Profile and account" title="Profile & Account">' + profileIconSvg() + '</button>'
+      ? `<div class="profile-menu-wrap">
+          <button class="icon-btn" id="profileBtn" type="button" aria-label="Profile and account" title="Profile & Account" aria-haspopup="true" aria-expanded="false" aria-controls="profileMenu">${profileIconSvg()}</button>
+          <div class="profile-menu" id="profileMenu" role="menu" aria-labelledby="profileBtn" hidden>
+            <button class="profile-menu-item" id="profileMenuAccount" type="button" role="menuitem">Profile &amp; Account</button>
+            <button class="profile-menu-item" id="profileMenuLogout" type="button" role="menuitem">${logoutIconSvg()}<span>Log out</span></button>
+          </div>
+        </div>`
       : '';
     headerRight.innerHTML = '<span class="user-chip">' + escapeHtml(appState.currentUser.email) + '</span>' + profileBtnMarkup;
     const profileBtn = document.getElementById('profileBtn');
     if (profileBtn) profileBtn.onclick = () => {
+      const profileMenu = document.getElementById('profileMenu');
+      const isExpanded = profileBtn.getAttribute('aria-expanded') === 'true';
+      profileBtn.setAttribute('aria-expanded', String(!isExpanded));
+      profileMenu.hidden = isExpanded;
+    };
+    const profileMenuAccount = document.getElementById('profileMenuAccount');
+    if (profileMenuAccount) profileMenuAccount.onclick = () => {
       appState.accountProfile = null;
       appState.accountCurrentPassword = '';
       setView('profile');
     };
+    const profileMenuLogout = document.getElementById('profileMenuLogout');
+    if (profileMenuLogout) profileMenuLogout.onclick = logout;
   } else {
     headerRight.innerHTML = '';
   }
@@ -499,20 +656,24 @@ function renderDashboard() {
     </div>`;
   }).join('') : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>';
 
-  // category strength rows
-  const catRows = catStats.length ? catStats.map(c => `
-    <div style="margin-bottom:14px;">
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
-        <span style="font-weight:600;">${escapeHtml(c.category)}</span>
-        <span style="color:${catColor(c.accuracy)};font-weight:700;">${c.accuracy}% <span style="color:var(--text-muted);font-weight:400;">(${c.correct}/${c.total})</span></span>
-      </div>
-      <div style="height:8px;background:var(--surface-gray);border-radius:4px;overflow:hidden;">
-        <div style="height:100%;width:${c.accuracy}%;background:${catColor(c.accuracy)};border-radius:4px;"></div>
-      </div>
-      <div style="margin-top:4px;">
-        <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" data-cat="${escapeHtml(c.category)}" data-practice>Practice</button>
-      </div>
-    </div>`).join('') : (loading ? '<p style="color:var(--text-muted);font-size:13px;">Loading...</p>' : '<p style="color:var(--text-muted);font-size:13px;">No category data yet.</p>');
+  // category strength cards
+  const catRows = catStats.length ? `<div class="category-strength-grid">${catStats.map(c => {
+    const accuracy = Number(c.accuracy) || 0;
+    const progress = Math.min(100, Math.max(0, accuracy));
+    const color = catColor(accuracy);
+    return `
+      <article class="category-strength-card">
+        <div class="category-strength-heading">
+          <h3>${escapeHtml(c.category)}</h3>
+          <span class="category-strength-score" style="color:${color};">${accuracy}%</span>
+        </div>
+        <p class="category-strength-count">${c.correct}/${c.total} correct</p>
+        <div class="category-strength-track" role="progressbar" aria-label="${escapeHtml(c.category)} accuracy" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
+          <div class="category-strength-progress" style="width:${progress}%;background:${color};"></div>
+        </div>
+        <button class="btn btn-secondary category-strength-practice" data-cat="${escapeHtml(c.category)}" data-practice type="button">Practice</button>
+      </article>`;
+  }).join('')}</div>` : (loading ? '<p style="color:var(--text-muted);font-size:13px;">Loading...</p>' : '<p style="color:var(--text-muted);font-size:13px;">No category data yet.</p>');
 
   // weak categories (accuracy < 70 with at least 3 attempts)
   const weak = catStats.filter(c => c.total >= 3 && c.accuracy < 70);

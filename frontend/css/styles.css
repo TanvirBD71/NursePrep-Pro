@@ -64,6 +64,17 @@ button, input, select, textarea {
   pointer-events: none;
 }
 
+.particle-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity .5s ease;
+}
+
+.particle-canvas.is-active { opacity: 1; }
+
 .medical-icon {
   position: absolute;
   width: min(82px, max(24px, calc((100vw - 960px) / 2)));
@@ -128,6 +139,37 @@ button, input, select, textarea {
   font-size: 13px; font-weight: 500;
   white-space: nowrap;
 }
+.profile-menu-wrap { position: relative; }
+.profile-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 200px;
+  padding: 6px;
+  border: 1px solid var(--border-gray);
+  border-radius: var(--radius-md);
+  background: var(--bg-white);
+  box-shadow: var(--shadow-md);
+}
+.profile-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-charcoal);
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+}
+.profile-menu-item:hover,
+.profile-menu-item:focus-visible { background: var(--surface-gray); }
+.profile-menu-item:focus-visible { outline: 2px solid var(--primary-teal); outline-offset: -2px; }
+.profile-menu-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ===== Main container ===== */
 .main-container {
@@ -303,6 +345,27 @@ button, input, select, textarea {
 .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 600; }
 .stat-value { font-size: clamp(1.5rem, 4vw, 1.75rem); font-weight: 700; color: var(--primary-teal); margin-top: 4px; }
 .section-title { font-size: clamp(1.125rem, 2vw, 1.3rem); font-weight: 700; margin: 24px 0 12px; }
+.category-strength-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 14px;
+}
+.category-strength-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-gray);
+  border-radius: var(--radius-md);
+  background: var(--bg-white);
+}
+.category-strength-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.category-strength-heading h3 { font-size: 14px; line-height: 1.4; }
+.category-strength-score { flex-shrink: 0; font-size: 14px; font-weight: 700; }
+.category-strength-count { margin: 4px 0 12px; color: var(--text-muted); font-size: 12px; }
+.category-strength-track { height: 8px; margin-bottom: 14px; overflow: hidden; border-radius: 4px; background: var(--surface-gray); }
+.category-strength-progress { height: 100%; border-radius: inherit; }
+.category-strength-practice { align-self: flex-start; margin-top: auto; padding: 6px 12px; font-size: 12px; }
 .profile-card { width: min(100%, 760px); margin: 0 auto; }
 .profile-section-title { margin: 22px 0 14px; padding-top: 18px; border-top: 1px solid var(--border-gray); }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
@@ -801,6 +864,7 @@ button, input, select, textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .particle-canvas,
   .medical-icon,
   .logo-preloader-mark,
   .logo-preloader-mark::before {
