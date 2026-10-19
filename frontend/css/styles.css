@@ -108,6 +108,23 @@ button, input, select, textarea {
 .medical-icon-pill { bottom: 15%; right: 0; transform: rotate(-28deg); }
 .medical-icon-pill:hover { transform: translateY(-8px) rotate(-38deg) scale(1.12); }
 
+.medical-icon-float {
+  width: 34px;
+  height: 34px;
+  opacity: .11;
+  pointer-events: none;
+  animation: medical-icon-float 7s ease-in-out infinite;
+}
+.medical-icon-float-cross { top: 58%; left: 24%; animation-delay: -1s; }
+.medical-icon-float-heart { top: 17%; right: 22%; animation-delay: -3s; }
+.medical-icon-float-stethoscope { bottom: 27%; left: 38%; animation-delay: -5s; }
+.medical-icon-float-pill { right: 36%; bottom: 12%; animation-delay: -2s; }
+
+@keyframes medical-icon-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-8deg); }
+  50% { transform: translate3d(0, -12px, 0) rotate(8deg); }
+}
+
 /* ===== Header ===== */
 .app-header {
   background: var(--bg-white);
