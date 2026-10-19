@@ -52,8 +52,8 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeProfileMenu(true);
 });
 
-// ===== Landing background =====
-function setLandingParticleEffect(enabled) {
+// ===== Interactive particle background =====
+function setParticleEffect(enabled) {
   const canvas = document.getElementById('particleCanvas');
   if (!canvas) return;
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) enabled = false;
@@ -282,7 +282,7 @@ function setView(view) {
 }
 
 function render() {
-  setLandingParticleEffect(appState.currentView === 'landing');
+  setParticleEffect(appState.currentView === 'landing' || appState.currentView === 'dashboard');
   updateHeader();
   ensureFloatingControls();
   switch (appState.currentView) {
