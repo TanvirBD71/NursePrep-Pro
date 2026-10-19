@@ -255,7 +255,7 @@ function wirePasswordToggle(inputId, buttonId) {
 
 function setLoading(html) {
   main.innerHTML = `
-    <div class="loading-wrap">
+    <div class="loading-wrap loading-wrap--page">
       <div class="logo-preloader-mark" aria-hidden="true" style="width:80px;height:80px;">
         <img src="assets/images/android-chrome-192x192.png" alt="" />
       </div>
@@ -770,18 +770,39 @@ function renderDashboard() {
     ${sessions.length ? `
     <div class="card">
       <h2 class="section-title" style="margin-top:0;">Recent Sessions</h2>
-     <div class="session-graph">
-       ${orderedSessions.slice(0, 15).map(({session: h, date}) => {
+      <div class="recent-sessions-table-wrap">
+        <table class="recent-sessions-table">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Exam</th>
+              <th scope="col">Session</th>
+              <th scope="col">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+       ${orderedSessions.slice(0, 10).map(({session: h, date}) => {
          const sessionLabel = h.mode === 'mock' ? 'Mock' : h.mode === 'tutor' ? 'Tutor' : h.mode || 'Exam';
          const score = Math.min(100, Math.max(0, Number(h.score) || 0));
          const color = score >= 70 ? 'var(--success-green)' : (score >= 50 ? 'var(--warning-amber)' : 'var(--error-red)');
-         const tooltip = `${sessionLabel} · ${escapeHtml(h.exam_type || u.target_exam)} · ${score}%`;
-         return `<div class="session-bar" title="${tooltip}">
-           <div class="session-bar-fill" style="height:${Math.max(12, score)}%;background:${color};"></div>
-           <span class="session-bar-label">${score}%</span>
-         </div>`;
+         const examType = h.exam_type || u.target_exam;
+         const dateLabel = date ? date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Date unavailable';
+         return `<tr>
+           <td>${escapeHtml(dateLabel)}</td>
+           <td>${escapeHtml(examType)}</td>
+           <td>${escapeHtml(sessionLabel)}</td>
+           <td>
+             <div class="session-score-cell">
+               <div class="session-score-pie" role="img" aria-label="${score}% score" style="--session-score:${score}%;--session-score-color:${color};">
+                 <span>${score}%</span>
+               </div>
+             </div>
+           </td>
+         </tr>`;
        }).join('')}
-     </div>
+          </tbody>
+        </table>
+      </div>
     </div>` : ''}` : ''}`;
 
   const btn = document.getElementById('startExamBtn');
