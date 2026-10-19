@@ -331,7 +331,10 @@ button, input, select, textarea {
   display: none;
   align-items: center;
   justify-content: center;
+  transition: background .15s, transform .15s;
 }
+.back-to-top:hover { background: var(--primary-teal-dark); transform: translateY(-2px); }
+.back-to-top:focus-visible { outline: 3px solid var(--warning-amber); outline-offset: 3px; }
 .floating-timer {
   position: fixed;
   top: 76px;
@@ -376,19 +379,36 @@ button, input, select, textarea {
 .category-strength-card {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
   padding: 16px;
   border: 1px solid var(--border-gray);
   border-radius: var(--radius-md);
   background: var(--bg-white);
 }
-.category-strength-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.category-strength-heading { width: 100%; text-align: center; }
 .category-strength-heading h3 { font-size: 14px; line-height: 1.4; }
-.category-strength-score { flex-shrink: 0; font-size: 14px; font-weight: 700; }
-.category-strength-count { margin: 4px 0 12px; color: var(--text-muted); font-size: 12px; }
-.category-strength-track { height: 8px; margin-bottom: 14px; overflow: hidden; border-radius: 4px; background: var(--surface-gray); }
-.category-strength-progress { height: 100%; border-radius: inherit; }
-.category-strength-practice { align-self: flex-start; margin-top: auto; padding: 6px 12px; font-size: 12px; }
+.category-strength-donut {
+  position: relative;
+  display: grid;
+  width: 84px;
+  height: 84px;
+  flex: 0 0 84px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--category-color) var(--category-progress), var(--surface-gray) 0);
+}
+.category-strength-donut::before {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--bg-white);
+  content: "";
+}
+.category-strength-donut span { position: relative; color: var(--category-color); font-size: 16px; font-weight: 700; }
+.category-strength-count { color: var(--text-muted); font-size: 12px; }
+.category-strength-practice { width: auto; margin-top: auto; padding: 6px 12px; font-size: 12px; }
 .profile-card { width: min(100%, 760px); margin: 0 auto; }
 .profile-section-title { margin: 22px 0 14px; padding-top: 18px; border-top: 1px solid var(--border-gray); }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
@@ -651,9 +671,10 @@ button, input, select, textarea {
 }
 
 .score-trend-graph {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  align-items: end;
+  gap: clamp(3px, 1vw, 10px);
   min-height: 160px;
   padding: 16px 0 6px;
   border-bottom: 1px solid var(--border-gray);
@@ -661,8 +682,7 @@ button, input, select, textarea {
 
 .trend-bar {
   display: flex;
-  flex: 1;
-  min-width: 34px;
+  min-width: 0;
   flex-direction: column;
   align-items: center;
   gap: 5px;
@@ -696,6 +716,13 @@ button, input, select, textarea {
   padding: 14px 0 10px;
 }
 
+.score-distribution {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
 .mini-chart-legend {
   display: grid;
   gap: 8px;
@@ -722,14 +749,14 @@ button, input, select, textarea {
 
 .mini-donut {
   position: relative;
-  width: clamp(120px, 18vw, 170px);
+  width: clamp(110px, 14vw, 150px);
   aspect-ratio: 1;
   border-radius: 50%;
   margin: 0 auto;
   background: conic-gradient(
-    var(--success-green) 0 30%,
-    var(--warning-amber) 30% 60%,
-    var(--error-red) 60% 100%
+    var(--success-green) 0 var(--pass-end),
+    var(--warning-amber) var(--pass-end) var(--borderline-end),
+    var(--error-red) var(--borderline-end) 100%
   );
   display: grid;
   place-items: center;
@@ -757,15 +784,6 @@ button, input, select, textarea {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: .08em;
-}
-
-.mini-chart-labels {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 10px;
-  font-size: 10px;
-  color: var(--text-muted);
 }
 
 .recent-sessions-table-wrap { overflow-x: auto; }
@@ -892,6 +910,11 @@ button, input, select, textarea {
   .score-trend-chart {
      grid-template-columns: 1fr;
      text-align: center;
+  }
+
+  .score-distribution {
+     grid-template-columns: minmax(110px, 150px) minmax(0, 1fr);
+     justify-content: center;
   }
 
   .mini-chart-legend {

@@ -320,10 +320,16 @@ function ensureFloatingControls() {
     backBtn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     document.body.appendChild(backBtn);
   }
-  const shouldShowBackToTop = window.scrollY > 180 && appState.currentView !== 'landing';
-  backBtn.style.display = shouldShowBackToTop ? 'flex' : 'none';
+  updateBackToTopVisibility();
 
   refreshFloatingTimer();
+}
+
+function updateBackToTopVisibility() {
+  const backBtn = document.getElementById('backToTopBtn');
+  if (!backBtn) return;
+  const shouldShowBackToTop = window.scrollY > 180 && appState.currentView !== 'landing';
+  backBtn.style.display = shouldShowBackToTop ? 'flex' : 'none';
 }
 
 function refreshFloatingTimer() {
@@ -665,13 +671,12 @@ function renderDashboard() {
       <article class="category-strength-card">
         <div class="category-strength-heading">
           <h3>${escapeHtml(c.category)}</h3>
-          <span class="category-strength-score" style="color:${color};">${accuracy}%</span>
+        </div>
+        <div class="category-strength-donut" role="img" aria-label="${escapeHtml(c.category)} accuracy ${Math.round(progress)}%" style="--category-progress:${progress}%;--category-color:${color};">
+          <span>${Math.round(progress)}%</span>
         </div>
         <p class="category-strength-count">${c.correct}/${c.total} correct</p>
-        <div class="category-strength-track" role="progressbar" aria-label="${escapeHtml(c.category)} accuracy" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
-          <div class="category-strength-progress" style="width:${progress}%;background:${color};"></div>
-        </div>
-        <button class="btn btn-secondary category-strength-practice" data-cat="${escapeHtml(c.category)}" data-practice type="button">Practice</button>
+        <button class="btn btn-primary category-strength-practice" data-cat="${escapeHtml(c.category)}" data-practice type="button">Practice</button>
       </article>`;
   }).join('')}</div>` : (loading ? '<p style="color:var(--text-muted);font-size:13px;">Loading...</p>' : '<p style="color:var(--text-muted);font-size:13px;">No category data yet.</p>');
 
@@ -729,32 +734,42 @@ function renderDashboard() {
     <div class="score-trend-chart">
        ${trend.length ? (() => {
          const grades = trend.map(({ session }) => Math.min(100, Math.max(0, Number(session.score) || 0)));
-         const labels = trend.map(({ date }) => date ? date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '');
          const total = grades.reduce((sum, value) => sum + value, 0);
-         const positive = Math.round((grades.filter(value => value >= 60).length / Math.max(1, grades.length)) * 100);
          const average = grades.length ? Math.round(total / grades.length) : 0;
+         const passCount = grades.filter(value => value >= 60).length;
+         const borderlineCount = grades.filter(value => value >= 40 && value < 60).length;
+         const needWorkCount = grades.length - passCount - borderlineCount;
+         const passEnd = (passCount / grades.length) * 100;
+         const borderlineEnd = ((passCount + borderlineCount) / grades.length) * 100;
+         const counts = [passCount, borderlineCount, needWorkCount];
+         const percentages = counts.map(count => Math.floor((count / grades.length) * 100));
+         let remainingPercentage = 100 - percentages.reduce((sum, value) => sum + value, 0);
+         counts
+           .map((count, index) => ({ index, remainder: (count / grades.length) * 100 - percentages[index] }))
+           .sort((a, b) => b.remainder - a.remainder)
+           .slice(0, remainingPercentage)
+           .forEach(({ index }) => { percentages[index] += 1; });
          const pieSegments = [
-           { label: 'Pass', value: positive, color: 'var(--success-green)' },
-           { label: 'Borderline', value: Math.max(0, Math.min(100, Math.round((grades.filter(value => value >= 40 && value < 60).length / Math.max(1, grades.length)) * 100))), color: 'var(--warning-amber)' },
-           { label: 'Need work', value: 100 - positive - Math.max(0, Math.min(100, Math.round((grades.filter(value => value >= 40 && value < 60).length / Math.max(1, grades.length)) * 100))), color: 'var(--error-red)' }
+           { label: 'Pass', value: percentages[0], color: 'success' },
+           { label: 'Borderline', value: percentages[1], color: 'warning' },
+           { label: 'Need work', value: percentages[2], color: 'danger' }
          ];
-         const statRing = `
-           <div class="mini-chart-legend">
-             <div class="legend-item"><span class="legend-dot success"></span> Pass ${pieSegments[0].value}%</div>
-             <div class="legend-item"><span class="legend-dot warning"></span> Borderline ${pieSegments[1].value}%</div>
-             <div class="legend-item"><span class="legend-dot danger"></span> Need work ${pieSegments[2].value}%</div>
-           </div>
-           <div class="mini-donut" style="--chart-average:${average}%; --donut-color: linear-gradient(135deg, var(--success-green), var(--warning-amber));">
-             <div class="mini-donut-inner">
-               <strong>${average}%</strong>
-               <span>Avg</span>
+         return `
+           <div class="score-distribution">
+             <div class="mini-donut" role="img" aria-label="Score distribution: Pass ${pieSegments[0].value}%, Borderline ${pieSegments[1].value}%, Need work ${pieSegments[2].value}%" style="--pass-end:${passEnd}%;--borderline-end:${borderlineEnd}%;">
+               <div class="mini-donut-inner">
+                 <strong>${average}%</strong>
+                 <span>Avg score</span>
+               </div>
+             </div>
+             <div class="mini-chart-legend">
+               ${pieSegments.map(segment => `<div class="legend-item"><span class="legend-dot ${segment.color}"></span> ${segment.label} ${segment.value}%</div>`).join('')}
              </div>
            </div>
-           <div class="mini-chart-labels">
-             ${labels.map((label, index) => `<span>${escapeHtml(label || 'N/A')}</span>`).join('')}
+           <div class="score-trend-graph" aria-label="Scores across recent sessions">
+             ${barsHtml}
            </div>
          `;
-         return statRing;
        })() : '<p style="color:var(--text-muted);font-size:13px;">No sessions yet. Start practicing to see your trend.</p>'}
     </div>
     </div>
@@ -1749,6 +1764,7 @@ function renderReview() {
 
 // ===== Init =====
 (function init() {
+  window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
   const saved = localStorage.getItem('np_user');
   if (saved) {
     try { appState.currentUser = JSON.parse(saved); setView('dashboard'); return; } catch(e){}
